@@ -202,6 +202,56 @@ quality.
 **Not its job.** Enforcing who may see a space — that is the connector's fail-closed boundary. A
 persona view narrows what is already permitted; it never widens it.
 
+## Isolation granularity
+
+The unit of isolation is itself a design choice. There are two, and the difference between them
+is whether a model runs inside the boundary.
+
+**Isolated tool invocation** — no model inside. A sandbox starts, runs one call, returns a
+projected result, and dies. Deterministic, cheap enough to use per call, and the provenance
+label attaches to the returned value at the boundary.
+
+**Isolated sub-agent** — a model inside. It reasons over content and may iterate. Needed only
+when untrusted content must be *interpreted* to produce the answer: "which of these three pages
+answers my question" cannot be a deterministic projection.
+
+The rule that follows: **deterministic projection → isolated tool invocation; interpretation
+required → isolated sub-agent with no tool access.** This is the same ladder as the projection
+tiers in [SPEC §6](docs/SPEC.md#6-orchestrator--subagents--security-model), seen from the
+isolation side rather than the context-economy side — one boundary, two motivations.
+
+### Sub-agent boundaries are taint firebreaks
+
+Session-level taint is a ratchet. Read one web page in the main session and, per
+[SPEC §7](docs/SPEC.md#7-trust-flow--trust-flows-down-never-up), nothing in that session may
+write memory again. For an assistant that reads the web constantly, that is a severe utility
+tax paid on the first fetch of the day.
+
+Run the read inside a sub-agent instead and the *sub-agent's* session takes the taint. The
+parent receives a labeled value rather than a poisoned session — value-level precision using
+only session-level machinery, with no CaMeL interpreter required.
+
+This holds only while the return channel stays narrow and the parent treats the result as an
+opaque value. A sub-agent that returns free text which the parent's model then reads has moved
+the taint, not bounded it: the parent is injection-influenced whatever the label says. So the
+firebreak reduces the ratchet from session-wide and permanent to per-value and trackable — a
+large win, but not a substitute for value discipline
+(→ [SPEC §11.1](docs/SPEC.md#11-open-risks--honest-notes)).
+
+### One profile, three instantiations
+
+Both granularities are the same machinery with different fields set:
+
+| Profile | Model inside? | Tools | Sees | Returns |
+|---|---|---|---|---|
+| Tool-runner | no | one, fixed | its own arguments | projected value |
+| Quarantined processor | yes | none | unblessed content | labeled value |
+| Privileged planner | yes | many, via catalog | blessed input only | a plan |
+
+The runtime, the spawn path, and the reference monitor are shared; a profile is data, not code.
+This is why supporting both granularities costs roughly one system rather than two — and why the
+catalog stays small enough to actually review.
+
 ## What is a prompt, not a component
 
 The point of keeping the component list at six is that this list can grow freely:
@@ -231,6 +281,9 @@ to the architecture, not to a component.
 7. **Enforcement is runtime, never prompt-level pleading.** Namespaces, containers, and network
    policy on hardware we control.
 
+During phase 1 two of these are temporarily bent by scaffolding, with stated exit conditions —
+see [Build order](#scaffolding-with-exit-conditions). No others are negotiable.
+
 ## MVP scope
 
 Per component — condensed from [SPEC §9](docs/SPEC.md#9-mvp-scope).
@@ -243,6 +296,60 @@ Per component — condensed from [SPEC §9](docs/SPEC.md#9-mvp-scope).
 | Agent isolation | Predefined profile catalog, read-only web subagent, blessed/unblessed taint tracking | Orchestrator-proposed new profiles |
 | Memory connector | Two OKF bundles (personal, household shared), QMD retrieval, git versioning | Spouse, kid-safe, and per-kid spaces; vector/graph retrieval |
 | Memory manager | Autonomous own-partition writes, human-gated promotion, persona routing with scoped views over one partition | Consolidation/compaction behavior; promotion-friction UX |
+
+## Build order
+
+**The memory layer is built first and standalone**, as a plugin consumed by an existing agent,
+while the other five components are built the way we want them. The orchestrator is the last
+thing to arrive, not the first.
+
+Why this order:
+
+- **Memory has the longest feedback loop.** Whether consolidation, dedup, and staleness handling
+  actually work (→ [SPEC §11.4](docs/SPEC.md#11-open-risks--honest-notes)) cannot be learned
+  from a week of synthetic testing; it takes real writes over real months. Building it first
+  starts that clock immediately.
+- **It is the differentiated part.** Orchestrators are commodity — Hermes, OpenClaw and others
+  all have one worth borrowing. Household-multi-tenant, human-legible, git-versioned memory is
+  the thing that does not exist yet.
+- **It is the least coupled component.** The connector and manager need an identity and a space.
+  They do not need the isolation runtime to exist.
+- **A plugin boundary proves the contract.** Exposed as a serializable interface to a foreign
+  host, the connector cannot quietly grow in-process coupling to our own orchestrator. The
+  six-replaceable-components stance stops being an assertion and becomes a tested fact.
+
+### What the interface carries from day one
+
+These are arguments on the API from the first commit, even where the interim host cannot supply
+them meaningfully:
+
+- **Identity and space** — parameters, never configuration, even while there is exactly one of
+  each.
+- **Provenance on every write** — blessed or unblessed, supplied by the caller.
+- **Promotion as an operation distinct from a write** — one that returns *proposed*, never
+  *done*.
+
+An interface that gains these later has to gain them in every caller at once. An interface born
+with them just accumulates callers that fill them in properly.
+
+### Scaffolding, with exit conditions
+
+Phase 1 runs inside a foreign host that has no OIDC and no concept of taint. Two invariants are
+bent, deliberately and temporarily:
+
+| Invariant bent | Interim posture | Exit condition |
+|---|---|---|
+| #1 — identity is a verified claim | A single configured identity, asserted by the host | Our own user interface, with Authentik in front |
+| #3 — unblessed data cannot reach a write without a human | The host supplies `blessed` for all writes | Our own agent isolation, with real provenance tracking |
+
+The interim posture on #3 is narrowly legitimate rather than a straight cheat:
+[SPEC §7](docs/SPEC.md#7-trust-flow--trust-flows-down-never-up) already holds that terminal
+presence is the approval, so a terminal-hosted session driven by one adult *is* blessed input by
+the spec's own rule. That justification does not extend to phone chat, to unattended runs, or to
+a second person — which is precisely when the exit condition binds.
+
+⚠ The failure mode to watch is scaffolding that works becoming the design. These exceptions are
+only safe for as long as they stay written down next to the invariants they bend.
 
 ## Open questions
 
