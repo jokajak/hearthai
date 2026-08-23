@@ -10,6 +10,10 @@ is the third time this quarter the same bill has come up, or that a decision mad
 reason for the constraint being hit in November. The accumulated context is the product.
 Everything else exists to gather it, keep it good, and keep it where it belongs.
 
+**It should be available and personable.** Available means reachable through whatever medium you
+already use, rather than one more app to open. Personable means it is recognisably the same
+someone each time — not five stateless bots wearing the same name in five different channels.
+
 **Status: pre-design.** Nothing is built. [`docs/SPEC.md`](docs/SPEC.md) holds the longer
 behavioral spec this is drawn from; where the two disagree, this README is current. No technology
 choice here is committed. Licensed AGPL-3.0.
@@ -19,6 +23,7 @@ choice here is committed. Licensed AGPL-3.0.
 ```mermaid
 flowchart TB
     U["Alice · Bob · Carol"]:::person
+    GW["<b>Gateways</b><br/>CLI · Mattermost · Buzz · web · phone<br/><i>a CLI also lends local tools</i>"]:::ui
     OIDC["<b>OIDC login</b><br/>any provider"]:::gate
     H["<b>hearthai</b><br/>persona = a system prompt<br/>access follows the user"]:::core
     INF["<b>Inference</b><br/>pluggable via LiteLLM"]:::inf
@@ -27,7 +32,8 @@ flowchart TB
     SH2[("<b>Trip planning</b><br/>another one")]:::shared
     OK{{"Alice approves"}}:::gate
 
-    U --> OIDC
+    U --> GW
+    GW --> OIDC
     OIDC -->|"verified identity"| H
     H <--> INF
     H <-->|"read · write, autonomous"| PRIV
@@ -38,6 +44,7 @@ flowchart TB
     OK -. "approved" .-> SH2
 
     classDef person fill:#e8ddf5,stroke:#6b46a8,stroke-width:2px,color:#1a1a1a
+    classDef ui fill:#d3efef,stroke:#2a8a8a,stroke-width:2px,color:#1a1a1a
     classDef gate fill:#fde9c8,stroke:#c47f17,stroke-width:2px,color:#1a1a1a
     classDef core fill:#fff3bf,stroke:#a68b00,stroke-width:3px,color:#1a1a1a
     classDef inf fill:#e5e5e5,stroke:#666666,stroke-width:2px,color:#1a1a1a
@@ -48,6 +55,31 @@ flowchart TB
 Alice's view. Bob and Carol each have the same shape: their own private store, plus whichever
 memory stores they have been invited into. Reads are wide — everything Alice holds. Writes are
 narrow: straight into her private store, and into a shared memory store only when she says yes.
+
+## Reachable where you already are
+
+hearthai does not really have a user interface. It has **gateways** into media people already
+use — a CLI, Mattermost, Buzz, web chat, a phone. A gateway authenticates the person, hands the
+session a verified identity, and translates between that medium and the one entity behind all of
+them. Adding a medium means writing an adapter, not building another product.
+
+Two things vary between surfaces, and only one of them is cosmetic.
+
+**Reach** — whether it can get your attention. A chat platform can raise a proposal the moment it
+matters; a CLI only speaks while you are sitting in it. This is what decides where an interactive
+prompt goes, and what "notify me" means for a given person.
+
+**Capability** — what the surface lends. A CLI is not just another chat window: it runs on your
+machine, so it brings local tools, local files, and a local network that a cluster-hosted service
+cannot otherwise touch. Opening a session there lends those hands for as long as it stays open,
+and closing it takes them back — presence is the approval, and the grant expires with the
+session. Mattermost lends nothing but conversation, which is all most conversations need.
+
+**Being personable is the whole reason for one entity behind many gateways.** What you worked
+through at the terminal on Tuesday is known to the Mattermost thread on Thursday, because memory
+belongs to the person, not the channel. Personas give it a consistent voice; the memory stores
+give it a continuous history. A separate bot per medium would be several passable acquaintances
+instead of one that actually knows you.
 
 ## Users and memory stores
 
@@ -164,7 +196,7 @@ product; the last three are internal features that keep it honest.
 
 | Component | Responsibility | Candidate (provisional) |
 |---|---|---|
-| **User interface** | Surfaces — web, phone, terminal — and the point where a person becomes a verified identity. Hands the session an identity claim and the memory stores it holds. | OIDC against any provider |
+| **Gateway** | One adapter per medium — CLI, chat platform, web, phone. Authenticates the person, hands the session a verified identity and the memory stores it holds, and carries whatever local capability that surface lends for as long as it is open. | OIDC against any provider |
 | **Memory connector** | Read and write access to memory stores. Fail-closed on membership: a store you are not in is unreachable, not filtered. Every write is a git commit. | OKF bundles (markdown + YAML frontmatter), git, QMD retrieval |
 | **Memory manager** | Keeps memory good over years. Runs mostly as scheduled analysis rather than in the request path: dedup, contradictions, staleness, and the three proposal jobs above. Owns persona tagging and the proposal queue. | Condenser over the bundles; cron on the cluster |
 | **Inference engine** | Model access behind one interface, so which model answers is a routing decision. | LiteLLM; cloud primary, local when available |
