@@ -24,27 +24,34 @@ choice here is committed. Licensed AGPL-3.0.
 flowchart TB
     U["Alice · Bob · Carol"]:::person
 
-    subgraph HAI["hearthai"]
+    subgraph HAI["hearthai — everything here is one system"]
         direction TB
         GW["<b>Gateways</b><br/>CLI · Mattermost · Buzz · web · phone<br/><i>the CLI runs on your machine —<br/>same system, same stores</i>"]:::ui
         CORE["<b>Session</b><br/>runs as one person<br/>persona = a system prompt<br/>access follows the user"]:::core
+        PRIV[("<b>Alice's private store</b><br/><i>never shareable</i>")]:::priv
+        OK{{"Alice approves"}}:::gate
+        SH1[("<b>Family</b><br/>a memory store Alice<br/>was invited into")]:::shared
+        SH2[("<b>Trip planning</b><br/>another one")]:::shared
+        INF["<b>Inference engine</b><br/>one interface, pluggable<br/>via LiteLLM"]:::inf
+
         GW --> CORE
+        CORE <--> INF
+        CORE <-->|"read · write, autonomous"| PRIV
+        SH1 -->|read| CORE
+        SH2 -->|read| CORE
+        CORE -. "proposed" .-> OK
+        OK -. "approved — the only way in" .-> SH1
+        OK -. "approved" .-> SH2
     end
 
-    INF["<b>Inference</b><br/>pluggable via LiteLLM"]:::inf
-    PRIV[("<b>Alice's private store</b><br/><i>never shareable</i>")]:::priv
-    SH1[("<b>Family</b><br/>a memory store Alice<br/>was invited into")]:::shared
-    SH2[("<b>Trip planning</b><br/>another one")]:::shared
-    OK{{"Alice approves"}}:::gate
+    subgraph MODELS["models"]
+        direction LR
+        SELF["<b>self-hosted</b><br/>your own GPU or laptop"]:::inf
+        EXT["<b>external</b><br/>a hosted API"]:::inf
+    end
 
     U --> GW
-    CORE <--> INF
-    CORE <-->|"read · write, autonomous"| PRIV
-    SH1 -->|read| CORE
-    SH2 -->|read| CORE
-    CORE -. "proposed" .-> OK
-    OK -. "approved — the only way in" .-> SH1
-    OK -. "approved" .-> SH2
+    INF <--> MODELS
 
     classDef person fill:#e8ddf5,stroke:#6b46a8,stroke-width:2px,color:#1a1a1a
     classDef ui fill:#d3efef,stroke:#2a8a8a,stroke-width:2px,color:#1a1a1a
@@ -54,11 +61,16 @@ flowchart TB
     classDef priv fill:#c9e8d4,stroke:#1f6b41,stroke-width:2px,color:#1a1a1a
     classDef shared fill:#d6e9fb,stroke:#2a6fb0,stroke-width:2px,color:#1a1a1a
     style HAI fill:#fdfaf0,stroke:#a68b00,stroke-width:2px,color:#1a1a1a
+    style MODELS fill:#f4f4f4,stroke:#888888,stroke-width:2px,stroke-dasharray:5 4,color:#1a1a1a
 ```
 
 Alice's view. Bob and Carol each have the same shape: their own private store, plus whichever
 memory stores they have been invited into. Reads are wide — everything Alice holds. Writes are
 narrow: straight into her private store, and into a shared memory store only when she says yes.
+
+Everything inside the boundary is hearthai — the gateways, the session, and the stores alike. The
+models are the one part that can live somewhere else: run them on your own hardware, call a
+hosted API, or mix the two, and the choice is routing rather than architecture.
 
 ## Reachable where you already are
 
@@ -206,7 +218,7 @@ product; the last three are internal features that keep it honest.
 | **Gateway** | Part of hearthai, one per medium — CLI, chat platform, web, phone. Authenticates the person, hands the session a verified identity and the memory stores it holds, and carries whatever local capability that medium has for as long as the session lasts. Also the route for proactive contact, where a user has enabled it. | OIDC against any provider |
 | **Memory connector** | Read and write access to memory stores. Fail-closed on membership: a store you are not in is unreachable, not filtered. Every write is a git commit. | OKF bundles (markdown + YAML frontmatter), git, QMD retrieval |
 | **Memory manager** | Keeps memory good over years. Runs mostly as scheduled analysis rather than in the request path: dedup, contradictions, staleness, and the three proposal jobs above. Owns persona tagging and the proposal queue. | Condenser over the bundles; cron on the cluster |
-| **Inference engine** | Model access behind one interface, so which model answers is a routing decision. | LiteLLM; cloud primary, local when available |
+| **Inference engine** | Model access behind one interface, so which model answers is a routing decision rather than an architectural one. The models themselves are the only part of the system that can sit outside it — self-hosted, external, or both. | LiteLLM |
 | **Tool execution isolation** | Where tool calls run and what they may touch. Guarantees: sandboxed filesystem and network, secrets never in an agent's context or environment, results projected before they reach a model. | Containers + NetworkPolicy; MCP as the tool standard |
 | **Agent isolation** | Which subagents may be spawned, and tracking whether data came from a person or from the web. Untrusted content cannot reach a write or an external action without a human. | Compiled policy; CaMeL-style planner/quarantine split |
 
