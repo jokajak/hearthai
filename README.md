@@ -1,10 +1,24 @@
 # hearthai
 
-A single AI entity for one household. It is reachable from phone/web chat and from a terminal,
-it remembers, and every family member talks to the same entity through a memory space scoped to
-their verified identity. It has almost no privileges of its own: everything it does to the world
-happens inside a constrained, ephemeral subagent that the runtime — not the prompt — keeps on a
-leash.
+**An AI for a household, not for a person.** The household is the unit hearthai is designed
+around — not one assistant with extra user accounts bolted onto it.
+
+Everyone in the house gets **their own persona**: an assistant bound to their own private memory
+space, which knows their history, their preferences, and their ongoing concerns, and which no
+one else in the house can read. Alongside those sit **shared personas** — a home manager is the
+obvious one — that every member can talk to, working from the household's shared memory rather
+than from anyone's private space.
+
+**Memory is what makes this worth more than a chatbot.** A model without context can answer
+questions; it cannot notice that the dentist appointment collides with a soccer match, that this
+is the third time this quarter the same bill has been queried, or that a decision made in March
+is the reason for the constraint being hit in November. The context accumulated per person and
+per household *is* the product. The other five components exist to gather that context safely,
+keep it good, and make sure it never leaks across the people it belongs to.
+
+It is one entity across surfaces — phone, web, terminal — and it has almost no privileges of its
+own: everything it does to the world happens inside a constrained, ephemeral subagent that the
+runtime, not the prompt, keeps on a leash.
 
 **Status: pre-design.** Nothing is built yet. The behavior this is aiming at is specified in
 [`docs/SPEC.md`](docs/SPEC.md); this README is the implementation-side view of that document —
@@ -15,6 +29,9 @@ Licensed AGPL-3.0.
 
 ## Design stance
 
+- **Memory is the product; the rest is plumbing.** Five components exist to let the sixth
+  accumulate trustworthy context per person and per household. When a tradeoff is unclear,
+  resolve it in favour of memory that is durable, legible, and correctly partitioned.
 - **Six components, each with a contract.** Any one can be swapped without rewriting the others.
   If a feature does not fit a component's contract, that is a signal to widen the contract on
   purpose, not to grow a seventh box by accident.
@@ -24,6 +41,91 @@ Licensed AGPL-3.0.
 - **The orchestrator is deliberately low-privilege.** Its effective power is exactly the union of
   the subagent profiles it can spawn, so the spawn catalog is the security boundary: keep it
   small and reviewed (→ [SPEC §6](docs/SPEC.md#6-orchestrator--subagents--security-model)).
+
+## The household model
+
+### People and spaces
+
+Every person in the house holds **one private memory space**. The household holds **one shared
+space**. Spaces are fail-closed: a space an identity does not hold is not filtered out of results
+at query time, it is unreachable. Group claims from the identity provider (`adults`, `kids`,
+per-user) are what map a verified person onto the spaces they hold
+(→ [SPEC §3](docs/SPEC.md#3-identity--access),
+[§4](docs/SPEC.md#4-memory-architecture)).
+
+```
+     Josh              spouse              kid
+       │                  │                  │
+       ▼                  ▼                  ▼
+  ┌──────────┐      ┌──────────┐      ┌──────────┐
+  │  Josh's  │      │ spouse's │      │   kid's  │    personal personas
+  │  persona │      │  persona │      │  persona │    private to one person
+  └────┬─────┘      └────┬─────┘      └────┬─────┘
+       ▼                 ▼                 ▼
+  ┌──────────┐      ┌──────────┐      ┌──────────┐
+  │  Josh's  │      │ spouse's │      │   kid's  │    private spaces
+  │  space   │      │  space   │      │  space   │    fail-closed, no peeking
+  └──────────┘      └──────────┘      └──────────┘
+
+     Josh ─┐         spouse ─┐            kid ─┐
+           └──────────────┬──┴─────────────────┘      everyone, same persona
+                          ▼
+                ┌───────────────────┐
+                │  shared personas  │   home manager, household chief-of-staff
+                └─────────┬─────────┘
+                          ▼
+                ┌───────────────────┐
+                │  household space  │   the only memory a shared persona holds
+                └───────────────────┘
+```
+
+### A persona is a prompt plus a bound space
+
+That single definition covers both kinds — they differ only in which space they are bound to.
+
+| | Bound to | Who may address it | Writes go to |
+|---|---|---|---|
+| **Personal persona** | one person's private space | that person only | that person's space |
+| **Shared persona** | the household shared space | every member, per their constitution | the household space |
+
+**Domain personas are a narrowing, not a third kind.** Medical, financial, and life advisors are
+typed slices *within* a bound space (frontmatter `type` scoping): the medical advisor is Josh's
+persona reading only the medically-typed part of Josh's bundle. Same brain, same binding,
+narrower view — never a wider one (→ [SPEC §5](docs/SPEC.md#5-personas)).
+
+### Shared personas must not become a lateral channel
+
+This is the part that needs stating, because it is the one way the household model could quietly
+undo the space partitioning it depends on.
+
+A shared persona talks to Josh on Monday and to a kid on Tuesday. Its memory is the household
+space **and nothing else**: conversational context from one member's session does not persist
+into another's. Without that rule the home manager becomes a channel by which anything said to
+it leaks to everyone — no memory write required, and no boundary crossed that the connector
+could have caught, because memory access was never the route.
+
+Two consequences follow:
+
+- **Anything from a private conversation that ought to reach the household is a promotion**, and
+  promotion is human-approved, always (→ [SPEC §4.1](docs/SPEC.md#41-write-policy-reconciled)).
+  Usefully, this turns the promotion gate into ordinary conversation — *"want me to put that on
+  the household calendar?"* — rather than an administrative approval queue. Part of the deferred
+  promotion-friction problem solves itself here.
+- **A shared persona has one memory view but a per-speaker policy binding.** It needs to know it
+  is talking to a kid rather than an adult, because a kid's constitution is stricter
+  (→ [SPEC §6](docs/SPEC.md#6-orchestrator--subagents--security-model)). One persona, one
+  memory, many callers, different rules per caller.
+
+### Guardianship is not operation
+
+Visibility follows the guardianship relationship, not who runs the cluster. Parents have insight
+into their children's personas; **adults' spaces are private to each adult**, and operating the
+infrastructure grants no read access to a spouse's space. The enforcement layer therefore has to
+distinguish *parent-of* from *operator-of*, or spousal privacy is merely conventional. This is a
+family-policy decision with a technical consequence, it should be disclosed to household members
+rather than silent, and it narrows as children reach adulthood
+(→ [SPEC §5](docs/SPEC.md#5-personas),
+[§11.3](docs/SPEC.md#11-open-risks--honest-notes)).
 
 ## Architecture at a glance
 
@@ -187,9 +289,11 @@ persona scoping.
 **Contract.** In: conversation, retrieval results, and the existing bundles. Out: write
 proposals, consolidations, and scoped memory views. Guarantees: it may **propose** a cross-space
 promotion (personal → household) and never perform one — promotion is human-approved, always. It
-owns dedup, contradiction resolution, and staleness. A **persona is a prompt plus a memory
-view** (frontmatter `type` scoping), not a separate agent with private memory: the medical
-advisor and the household chief-of-staff are the same brain reading different slices.
+owns dedup, contradiction resolution, and staleness. It constructs both persona kinds from one
+rule — **a prompt plus a bound space** — personal personas bound to one person's space, shared
+personas bound to the household space, and domain advisors as typed narrowings within a binding.
+A persona is never a separate agent with private memory of its own, and a shared persona holds
+no conversational state across the members who address it.
 
 **Candidate (provisional).** Frontmatter-`type` view construction over the connector's bundles;
 a promote/demote condenser for consolidation; Honcho-style user modeling as an option for
@@ -254,11 +358,14 @@ catalog stays small enough to actually review.
 
 ## What is a prompt, not a component
 
-The point of keeping the component list at six is that this list can grow freely:
+The point of keeping the component list at six is that this list can grow freely. Adding a person
+to the household, or a new shared persona, is configuration and prose — not a new subsystem:
 
 | Behavior | Lives as | Enforced by |
 |---|---|---|
-| Persona roster and routing (medical, financial, life, chief-of-staff) | Prompt + a memory view | Memory connector's space boundary — a persona cannot read what the identity cannot |
+| A new household member's persona | Prompt + a space binding | Memory connector's fail-closed boundary; group claims decide the binding |
+| A new shared persona (home manager, meal planner, trip planner) | Prompt bound to the household space | Same boundary — it can hold no private space, so it cannot leak one |
+| Domain advisors (medical, financial, life) | Prompt + a typed narrowing within a binding | Memory manager builds the view; it may only narrow, never widen |
 | The security constitution | Plain English, compiled | Agent isolation's reference monitor, at tool-call boundaries |
 | "This looks worth promoting to the household space" | Prompt-driven suggestion | Memory manager proposes; a human approves; the connector writes |
 | Tone, voice, house style | Prompt | Nothing — and nothing needs to |
@@ -280,6 +387,8 @@ to the architecture, not to a component.
 6. **Raw tool payloads never enter inference context.** Project before inject.
 7. **Enforcement is runtime, never prompt-level pleading.** Namespaces, containers, and network
    policy on hardware we control.
+8. **A shared persona holds no state across the members it serves.** Its memory is the household
+   space; conversation with one member never becomes context for another.
 
 During phase 1 two of these are temporarily bent by scaffolding, with stated exit conditions —
 see [Build order](#scaffolding-with-exit-conditions). No others are negotiable.
@@ -294,8 +403,8 @@ Per component — condensed from [SPEC §9](docs/SPEC.md#9-mvp-scope).
 | User interface | Cluster-hosted web chat behind Authentik OIDC; terminal-as-execution-endpoint session model | Additional surfaces; household onboarding UX |
 | Tool execution isolation | Sandboxed tool-runners, result projection, credential broker | External-write allowlists (every external write is human-approved in MVP) |
 | Agent isolation | Predefined profile catalog, read-only web subagent, blessed/unblessed taint tracking | Orchestrator-proposed new profiles |
-| Memory connector | Two OKF bundles (personal, household shared), QMD retrieval, git versioning | Spouse, kid-safe, and per-kid spaces; vector/graph retrieval |
-| Memory manager | Autonomous own-partition writes, human-gated promotion, persona routing with scoped views over one partition | Consolidation/compaction behavior; promotion-friction UX |
+| Memory connector | Two OKF bundles — one personal space plus the household shared space — QMD retrieval, git versioning | Spouse, kid-safe, and per-kid spaces; vector/graph retrieval |
+| Memory manager | One personal persona set with domain narrowings, one shared persona over the household space, autonomous own-partition writes, human-gated promotion | Additional people's personas; consolidation/compaction; promotion-friction UX |
 
 ## Build order
 
