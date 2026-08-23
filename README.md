@@ -53,34 +53,34 @@ per-user) are what map a verified person onto the spaces they hold
 (→ [SPEC §3](docs/SPEC.md#3-identity--access),
 [§4](docs/SPEC.md#4-memory-architecture)).
 
+```mermaid
+flowchart TB
+    J["Josh"]:::person
+    JS["<b>Session as Josh</b><br/>whichever persona he addresses —<br/>his own, a domain advisor,<br/>or the shared home manager"]:::sess
+    JST[("<b>Josh's store</b><br/>every write lands here,<br/>tagged with the persona<br/>that produced it")]:::store
+    HUMAN{{"Josh approves"}}:::gate
+    HH[("<b>Household store</b><br/>readable by every member<br/><i>no autonomous writer</i>")]:::shared
+    OTHER[("spouse's store · kid's store<br/><i>one per person, same pattern</i>")]:::locked
+
+    J --> JS
+    JS <-->|"read · write"| JST
+    HH -->|"read"| JS
+    JST -. "promotion proposed" .-> HUMAN
+    HUMAN -. "the only way in" .-> HH
+    JS -. "fail-closed: unreachable" .-x OTHER
+
+    classDef person fill:#e8ddf5,stroke:#6b46a8,stroke-width:2px,color:#1a1a1a
+    classDef sess fill:#d6e9fb,stroke:#2a6fb0,stroke-width:2px,color:#1a1a1a
+    classDef store fill:#c9e8d4,stroke:#1f6b41,stroke-width:2px,color:#1a1a1a
+    classDef shared fill:#fff3bf,stroke:#a68b00,stroke-width:3px,color:#1a1a1a
+    classDef gate fill:#fde9c8,stroke:#c47f17,stroke-width:2px,color:#1a1a1a
+    classDef locked fill:#eeeeee,stroke:#999999,stroke-width:2px,stroke-dasharray:5 4,color:#555555
 ```
-     Josh              spouse              kid
-       │                  │                  │            each addresses any persona:
-       │                  │                  │            their own, or a shared one
-       ▼                  ▼                  ▼
-  ┌──────────┐      ┌──────────┐      ┌──────────┐
-  │ session  │      │ session  │      │ session  │   a persona is the system prompt
-  │ as Josh  │      │as spouse │      │  as kid  │   this session runs under
-  └──┬────▲──┘      └──┬────▲──┘      └──┬────▲──┘
-     │    │            │    │            │    │
-   write read        write read        write read
-     │    │            │    │            │    │
-  ┌──▼────┴──┐      ┌──▼────┴──┐      ┌──▼────┴──┐
-  │  Josh's  │      │ spouse's │      │   kid's  │   private stores — fail-closed
-  │  store   │      │  store   │      │  store   │   between people, never within
-  └──────────┘      └──────────┘      └──────────┘   a person
-       ╎                  ╎                  ╎
-       ╎ promotion        ╎ promotion        ╎ promotion    ← human-approved, always
-       ╎ (approved)       ╎ (approved)       ╎ (approved)
-       ▼                  ▼                  ▼
-  ┌───────────────────────────────────────────────┐
-  │              household store                  │  readable by every member
-  │   no autonomous writer — promotion only       │  written only by approval
-  └───────────────────────────────────────────────┘
-              ▲          ▲          ▲
-              └──────────┴──────────┘
-                    read, by anyone who holds it
-```
+
+One person's view; every member has the same shape. Solid arrows both ways to your own store,
+solid one way *out* of the household store, and the only edge *into* shared memory is dotted —
+because a human is standing on it. The greyed store is the boundary that actually matters: other
+people's memory is unreachable, not filtered.
 
 ### A persona is a system prompt plus the stores you already hold
 
@@ -167,39 +167,67 @@ rather than silent, and it narrows as children reach adulthood
 
 ## Architecture at a glance
 
-```
-        family members (OIDC-verified)
-                    │
-        ┌───────────▼───────────┐
-        │    user interface     │  web/phone chat · terminal session
-        │  (identity + surface) │  hands over a verified claim, never chat-asserted
-        └───────────┬───────────┘
-                    │ identity, space, modality
-        ┌───────────▼───────────┐        ┌──────────────────┐
-        │     orchestrator      │◄──────►│ inference engine │  pluggable models
-        │  (low privilege: no   │        └──────────────────┘  cloud-primary + laptop
-        │   direct tools, no    │
-        │   direct net, no      │        ┌──────────────────┐
-        │   direct secrets)     │◄──────►│ memory manager   │  what to keep, dedup,
-        └───────────┬───────────┘        │                  │  staleness, persona views
-                    │                    └────────┬─────────┘
-                    │ spawn request               │
-        ┌───────────▼───────────┐        ┌────────▼─────────┐
-        │    agent isolation    │        │ memory connector │  OKF bundles, git,
-        │  profiles · blessed/  │        │  (fail-closed    │  retrieval
-        │  unblessed provenance │        │   by space)      │
-        │  reference monitor    │        └──────────────────┘
-        └───────────┬───────────┘
-                    │ approved tool call
-        ┌───────────▼───────────┐
-        │ tool execution        │  sandbox · network policy · credential broker
-        │ isolation             │  projects results before they reach any model
-        └───────────────────────┘
+```mermaid
+flowchart TB
+    J["Josh"]:::person
+    SP["spouse"]:::person
+    K["kid"]:::person
+    AUTH["<b>Authentik — OIDC</b><br/>group claims decide<br/>which stores you hold"]:::gate
+    SURF["<b>User interface</b><br/>phone · web · terminal<br/><i>terminal also lends the laptop<br/>as an execution endpoint</i>"]:::ui
+    PER["<b>Persona</b><br/>a system prompt: personal, shared, or domain<br/><i>directs attention — never gates access</i>"]:::persona
+    ORCH["<b>Orchestrator</b><br/>low privilege by design:<br/>no tools · no network · no secrets"]:::orch
+    INF["<b>Inference engine</b> — LiteLLM<br/>cloud primary · laptop when present"]:::inf
+    MM["<b>Memory manager</b><br/>what to keep · dedup · staleness<br/>persona tagging · promotion proposals"]:::mem
+    MC["<b>Memory connector</b><br/>fail-closed on verified identity"]:::mem
+    OWN[("<b>Member's own store</b><br/>OKF + git · writes land here,<br/>tagged with the persona")]:::store
+    HH[("<b>Household store</b><br/>readable by every member<br/><i>no autonomous writer</i>")]:::store
+    AI["<b>Agent isolation</b><br/>blessed / unblessed provenance<br/>allow · escalate · deny"]:::sec
+    QP["<b>Quarantined reader</b><br/>a model, no tools"]:::sub
+    TR["<b>Tool runner</b><br/>no model, one call"]:::sub
+    TEI["<b>Tool execution isolation</b><br/>sandbox · NetworkPolicy · credential broker<br/><i>projects every result before it reaches a model</i>"]:::sec
+    WORLD["the world<br/>web · email · services"]:::world
+    HUMAN{{"a human says yes"}}:::gate
+
+    J --> AUTH
+    SP --> AUTH
+    K --> AUTH
+    AUTH -->|"verified claim, never chat-asserted"| SURF
+    SURF --> PER
+    PER --> ORCH
+    ORCH <--> INF
+    ORCH <--> MM
+    MM --- MC
+    MC -->|read| OWN
+    MC -->|read| HH
+    MC -->|"write, autonomous"| OWN
+    OWN -.->|"promotion proposal"| HUMAN
+    HUMAN -.->|"approved — the only way in"| HH
+    ORCH -->|"spawn request"| AI
+    AI --> QP
+    AI --> TR
+    QP -->|"labeled value"| ORCH
+    TR --> TEI
+    QP --> TEI
+    TEI --> WORLD
+    WORLD -.->|"unblessed data"| TEI
+
+    classDef person fill:#e8ddf5,stroke:#6b46a8,stroke-width:2px,color:#1a1a1a
+    classDef gate fill:#fde9c8,stroke:#c47f17,stroke-width:2px,color:#1a1a1a
+    classDef ui fill:#d6e9fb,stroke:#2a6fb0,stroke-width:2px,color:#1a1a1a
+    classDef persona fill:#d9f0e3,stroke:#2e8b57,stroke-width:2px,color:#1a1a1a
+    classDef orch fill:#fff3bf,stroke:#a68b00,stroke-width:3px,color:#1a1a1a
+    classDef inf fill:#e5e5e5,stroke:#666666,stroke-width:2px,color:#1a1a1a
+    classDef mem fill:#d9f0e3,stroke:#2e8b57,stroke-width:2px,color:#1a1a1a
+    classDef store fill:#c9e8d4,stroke:#1f6b41,stroke-width:2px,color:#1a1a1a
+    classDef sec fill:#fadada,stroke:#b03030,stroke-width:2px,color:#1a1a1a
+    classDef sub fill:#fdeaea,stroke:#c25555,stroke-width:2px,color:#1a1a1a
+    classDef world fill:#e5e5e5,stroke:#888888,stroke-width:2px,stroke-dasharray:4 3,color:#1a1a1a
 ```
 
-Read it as two axes: **memory connector/manager** decide what the entity knows, and
-**agent/tool isolation** decide what it may do. The orchestrator sits between them holding
-neither capability directly.
+**Green is what the entity knows. Red is what it may do. Yellow is the orchestrator, holding
+neither capability directly** — it reasons, and everything else is delegated to something the
+runtime keeps on a leash. Dotted edges are the two places a human stands in the path: approving
+a promotion into shared memory, and the return of unblessed data from the world.
 
 ## Components
 
