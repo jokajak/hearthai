@@ -23,9 +23,14 @@ choice here is committed. Licensed AGPL-3.0.
 ```mermaid
 flowchart TB
     U["Alice · Bob · Carol"]:::person
-    GW["<b>Gateways</b><br/>CLI · Mattermost · Buzz · web · phone<br/><i>a CLI also lends local tools</i>"]:::ui
-    OIDC["<b>OIDC login</b><br/>any provider"]:::gate
-    H["<b>hearthai</b><br/>persona = a system prompt<br/>access follows the user"]:::core
+
+    subgraph HAI["hearthai"]
+        direction TB
+        GW["<b>Gateways</b><br/>CLI · Mattermost · Buzz · web · phone<br/><i>the CLI runs on your machine —<br/>same system, same stores</i>"]:::ui
+        CORE["<b>Session</b><br/>runs as one person<br/>persona = a system prompt<br/>access follows the user"]:::core
+        GW --> CORE
+    end
+
     INF["<b>Inference</b><br/>pluggable via LiteLLM"]:::inf
     PRIV[("<b>Alice's private store</b><br/><i>never shareable</i>")]:::priv
     SH1[("<b>Family</b><br/>a memory store Alice<br/>was invited into")]:::shared
@@ -33,13 +38,11 @@ flowchart TB
     OK{{"Alice approves"}}:::gate
 
     U --> GW
-    GW --> OIDC
-    OIDC -->|"verified identity"| H
-    H <--> INF
-    H <-->|"read · write, autonomous"| PRIV
-    SH1 -->|read| H
-    SH2 -->|read| H
-    H -. "proposed" .-> OK
+    CORE <--> INF
+    CORE <-->|"read · write, autonomous"| PRIV
+    SH1 -->|read| CORE
+    SH2 -->|read| CORE
+    CORE -. "proposed" .-> OK
     OK -. "approved — the only way in" .-> SH1
     OK -. "approved" .-> SH2
 
@@ -50,6 +53,7 @@ flowchart TB
     classDef inf fill:#e5e5e5,stroke:#666666,stroke-width:2px,color:#1a1a1a
     classDef priv fill:#c9e8d4,stroke:#1f6b41,stroke-width:2px,color:#1a1a1a
     classDef shared fill:#d6e9fb,stroke:#2a6fb0,stroke-width:2px,color:#1a1a1a
+    style HAI fill:#fdfaf0,stroke:#a68b00,stroke-width:2px,color:#1a1a1a
 ```
 
 Alice's view. Bob and Carol each have the same shape: their own private store, plus whichever
@@ -58,26 +62,26 @@ narrow: straight into her private store, and into a shared memory store only whe
 
 ## Reachable where you already are
 
-hearthai does not really have a user interface. It has **gateways** into media people already
-use — a CLI, Mattermost, Buzz, web chat, a phone. A gateway authenticates the person, hands the
-session a verified identity, and translates between that medium and the one entity behind all of
-them. Adding a medium means writing an adapter, not building another product.
+hearthai does not really have a user interface. It has **gateways** — one per medium, and each
+one part of hearthai itself rather than a client pointed at it. A CLI, Mattermost,
+[Buzz](https://buzz.xyz), web chat, a phone. Adding a medium means writing a gateway, not
+building another product. Each authenticates the person (any OIDC provider) and hands the session
+a verified identity; behind all of them is the same entity.
 
-Two things vary between surfaces, and only one of them is cosmetic.
+**The CLI is the clearest case of a gateway being part of the system.** It is not a thin client
+talking to a server: it is hearthai running on your machine, granted access to the same central
+memory stores as every other gateway. That is why it can reach local tools, local files, and the
+local network — it is already local. Nothing is lent inward to a remote brain; the system extends
+outward to where you are and reaches back to the stores. What it can touch locally lasts as long
+as that session, and ends with it.
 
-**Reach** — whether it can get your attention. A chat platform can raise a proposal the moment it
-matters; a CLI only speaks while you are sitting in it. This is what decides where an interactive
-prompt goes, and what "notify me" means for a given person.
-
-**Capability** — what the surface lends. A CLI is not just another chat window: it runs on your
-machine, so it brings local tools, local files, and a local network that a cluster-hosted service
-cannot otherwise touch. Opening a session there lends those hands for as long as it stays open,
-and closing it takes them back — presence is the approval, and the grant expires with the
-session. Mattermost lends nothing but conversation, which is all most conversations need.
+Other gateways carry no local capability, and mostly do not need any — a conversation in
+Mattermost is a conversation. What varies between gateways is what the surface can do, never who
+you are or what you can reach: those follow your identity, identically everywhere.
 
 **Being personable is the whole reason for one entity behind many gateways.** What you worked
-through at the terminal on Tuesday is known to the Mattermost thread on Thursday, because memory
-belongs to the person, not the channel. Personas give it a consistent voice; the memory stores
+through at the CLI on Tuesday is known to the Mattermost thread on Thursday, because memory
+belongs to the person, not the gateway. Personas give it a consistent voice; the memory stores
 give it a continuous history. A separate bot per medium would be several passable acquaintances
 instead of one that actually knows you.
 
@@ -174,9 +178,12 @@ analysis refines a skill already sitting in a shared store, the revision reaches
 automatically, including changes to bundled scripts their agents execute. Creation-time
 shareability does not cover later revisions. Unresolved.
 
-**Proposals wait in a queue until you answer them.** They surface either in your next session —
-the cheap path, nothing interrupts you — or as an interactive prompt when something deserves
-attention now. An unanswered proposal expires; nothing acts by default. A learned routine needs
+**Proposals wait in a queue until you answer them, and by default they wait quietly** — you meet
+them next time you talk, and nothing interrupts you in the meantime. A user who wants to be
+reached can configure a gateway for it, and hearthai will raise proposals through that one. This
+is **per user and off until someone turns it on**: being available is not the same as being
+noisy, and one person opting in says nothing about anyone else. An unanswered proposal expires;
+nothing acts by default. A learned routine needs
 more than a yes, since "other people can read this" and "the system now acts without being asked"
 are different sizes of decision: approving one means approving what it may do, not just that it
 may run.
@@ -196,7 +203,7 @@ product; the last three are internal features that keep it honest.
 
 | Component | Responsibility | Candidate (provisional) |
 |---|---|---|
-| **Gateway** | One adapter per medium — CLI, chat platform, web, phone. Authenticates the person, hands the session a verified identity and the memory stores it holds, and carries whatever local capability that surface lends for as long as it is open. | OIDC against any provider |
+| **Gateway** | Part of hearthai, one per medium — CLI, chat platform, web, phone. Authenticates the person, hands the session a verified identity and the memory stores it holds, and carries whatever local capability that medium has for as long as the session lasts. Also the route for proactive contact, where a user has enabled it. | OIDC against any provider |
 | **Memory connector** | Read and write access to memory stores. Fail-closed on membership: a store you are not in is unreachable, not filtered. Every write is a git commit. | OKF bundles (markdown + YAML frontmatter), git, QMD retrieval |
 | **Memory manager** | Keeps memory good over years. Runs mostly as scheduled analysis rather than in the request path: dedup, contradictions, staleness, and the three proposal jobs above. Owns persona tagging and the proposal queue. | Condenser over the bundles; cron on the cluster |
 | **Inference engine** | Model access behind one interface, so which model answers is a routing decision. | LiteLLM; cloud primary, local when available |
