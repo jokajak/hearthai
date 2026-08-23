@@ -88,33 +88,40 @@ That single definition covers both kinds — they differ only in which space the
 | **Personal persona** | one person's private space | that person only | that person's space |
 | **Shared persona** | the household shared space | every member, per their constitution | the household space |
 
+A binding only ever narrows. It grants no access of its own: whatever a member cannot reach on
+their own, no persona of theirs can reach either.
+
 **Domain personas are a narrowing, not a third kind.** Medical, financial, and life advisors are
 typed slices *within* a bound space (frontmatter `type` scoping): the medical advisor is Josh's
 persona reading only the medically-typed part of Josh's bundle. Same brain, same binding,
 narrower view — never a wider one (→ [SPEC §5](docs/SPEC.md#5-personas)).
 
-### Shared personas must not become a lateral channel
+### A persona is a prompt, not a process
 
-This is the part that needs stating, because it is the one way the household model could quietly
-undo the space partitioning it depends on.
+There is no long-running home manager sitting in the house accumulating conversations. A session
+belongs to **one member**; the persona is the prompt that session runs under; memory access
+derives from that member's verified identity. A shared persona therefore cannot reach anything
+the member addressing it could not reach alone — the binding **narrows** what the member already
+holds, and has no way to widen it. Talking to the home manager on Tuesday cannot surface what
+someone else told the home manager on Monday, because nothing carried over: the persona is text,
+and the only thing that persists is memory, which is scoped per identity.
 
-A shared persona talks to Josh on Monday and to a kid on Tuesday. Its memory is the household
-space **and nothing else**: conversational context from one member's session does not persist
-into another's. Without that rule the home manager becomes a channel by which anything said to
-it leaks to everyone — no memory write required, and no boundary crossed that the connector
-could have caught, because memory access was never the route.
+One implementation consequence is worth writing down, since it is only true by construction:
+**session state is keyed by the member, never by the persona.** Same prompt, different people,
+no shared conversational memory between them.
 
-Two consequences follow:
+Two properties still need handling explicitly:
 
-- **Anything from a private conversation that ought to reach the household is a promotion**, and
-  promotion is human-approved, always (→ [SPEC §4.1](docs/SPEC.md#41-write-policy-reconciled)).
-  Usefully, this turns the promotion gate into ordinary conversation — *"want me to put that on
-  the household calendar?"* — rather than an administrative approval queue. Part of the deferred
-  promotion-friction problem solves itself here.
 - **A shared persona has one memory view but a per-speaker policy binding.** It needs to know it
   is talking to a kid rather than an adult, because a kid's constitution is stricter
   (→ [SPEC §6](docs/SPEC.md#6-orchestrator--subagents--security-model)). One persona, one
   memory, many callers, different rules per caller.
+- **Writes are the unresolved part, not reads.** For a personal persona, "own partition"
+  (autonomous writes, [SPEC §4.1](docs/SPEC.md#41-write-policy-reconciled)) and "a space only
+  that person reads" are the same space, so autonomy is safe. For a shared persona the two come
+  apart: the household space is its own partition, so the autonomous-write rule licenses writing
+  to it — but it is also the space every other member reads. Nothing crosses a boundary, so the
+  promotion gate never fires. See [Open questions](#open-questions).
 
 ### Guardianship is not operation
 
@@ -387,8 +394,9 @@ to the architecture, not to a component.
 6. **Raw tool payloads never enter inference context.** Project before inject.
 7. **Enforcement is runtime, never prompt-level pleading.** Namespaces, containers, and network
    policy on hardware we control.
-8. **A shared persona holds no state across the members it serves.** Its memory is the household
-   space; conversation with one member never becomes context for another.
+8. **Session state is keyed by the member, never by the persona.** A persona is a prompt applied
+   to one member's session, and access derives from that member's identity — a binding narrows
+   it and can never widen it.
 
 During phase 1 two of these are temporarily bent by scaffolding, with stated exit conditions —
 see [Build order](#scaffolding-with-exit-conditions). No others are negotiable.
@@ -474,6 +482,11 @@ Each of these is unresolved and known — detail in
 - **Parent-of must be distinguishable from operator-of** in the enforcement layer, or spousal
   privacy is only conventional. Guardian visibility is a family-policy decision with a technical
   consequence, and it should sunset as children age.
+- **Are a shared persona's writes autonomous?** The household space is that persona's own
+  partition, which licenses autonomous writes — and is also the space everyone else reads, so
+  something said in passing to the home manager can become household-visible without anyone
+  approving a promotion, since structurally nothing crossed a space boundary. Gating every such
+  write is safe and tedious in exact proportion to how useful the home manager is. Undecided.
 - **What licenses the entity to speak first?** Proactive initiation — and what it may observe in
   order to have something to say — is unaddressed in MVP.
 
