@@ -55,54 +55,92 @@ per-user) are what map a verified person onto the spaces they hold
 
 ```
      Josh              spouse              kid
-       │                  │                  │
+       │                  │                  │            each addresses any persona:
+       │                  │                  │            their own, or a shared one
        ▼                  ▼                  ▼
   ┌──────────┐      ┌──────────┐      ┌──────────┐
-  │  Josh's  │      │ spouse's │      │   kid's  │    personal personas
-  │  persona │      │  persona │      │  persona │    private to one person
-  └────┬─────┘      └────┬─────┘      └────┬─────┘
-       ▼                 ▼                 ▼
-  ┌──────────┐      ┌──────────┐      ┌──────────┐
-  │  Josh's  │      │ spouse's │      │   kid's  │    private spaces
-  │  space   │      │  space   │      │  space   │    fail-closed, no peeking
-  └──────────┘      └──────────┘      └──────────┘
-
-     Josh ─┐         spouse ─┐            kid ─┐
-           └──────────────┬──┴─────────────────┘      everyone, same persona
-                          ▼
-                ┌───────────────────┐
-                │  shared personas  │   home manager, household chief-of-staff
-                └─────────┬─────────┘
-                          ▼
-                ┌───────────────────┐
-                │  household space  │   the only memory a shared persona holds
-                └───────────────────┘
+  │ session  │      │ session  │      │ session  │   a persona is the system prompt
+  │ as Josh  │      │as spouse │      │  as kid  │   this session runs under
+  └──┬────▲──┘      └──┬────▲──┘      └──┬────▲──┘
+     │    │            │    │            │    │
+   write read        write read        write read
+     │    │            │    │            │    │
+  ┌──▼────┴──┐      ┌──▼────┴──┐      ┌──▼────┴──┐
+  │  Josh's  │      │ spouse's │      │   kid's  │   private stores — fail-closed
+  │  store   │      │  store   │      │  store   │   between people, never within
+  └──────────┘      └──────────┘      └──────────┘   a person
+       ╎                  ╎                  ╎
+       ╎ promotion        ╎ promotion        ╎ promotion    ← human-approved, always
+       ╎ (approved)       ╎ (approved)       ╎ (approved)
+       ▼                  ▼                  ▼
+  ┌───────────────────────────────────────────────┐
+  │              household store                  │  readable by every member
+  │   no autonomous writer — promotion only       │  written only by approval
+  └───────────────────────────────────────────────┘
+              ▲          ▲          ▲
+              └──────────┴──────────┘
+                    read, by anyone who holds it
 ```
 
-### A persona is a prompt plus a bound space
+### A persona is a system prompt plus the stores you already hold
 
-That single definition covers both kinds — they differ only in which space they are bound to.
+A persona is two things: the system prompt that gives it its direction, and the set of data
+stores available to it for context. What separates a personal persona from a shared one is what
+its prompt is *for*, not what it is allowed to see.
 
-| | Bound to | Who may address it | Writes go to |
+| | Its prompt directs it toward | Reads | Writes land in |
 |---|---|---|---|
-| **Personal persona** | one person's private space | that person only | that person's space |
-| **Shared persona** | the household shared space | every member, per their constitution | the household space |
+| **Personal persona** | that person's own life and concerns | their own store, plus the household store | their own store, tagged with the persona |
+| **Shared persona** | household-level concerns | the same — whatever the addressing member holds | the addressing member's store, tagged with the persona |
 
-A binding only ever narrows. It grants no access of its own: whatever a member cannot reach on
-their own, no persona of theirs can reach either.
+Two rules make that table work:
 
-**Domain personas are a narrowing, not a third kind.** Medical, financial, and life advisors are
-typed slices *within* a bound space (frontmatter `type` scoping): the medical advisor is Josh's
-persona reading only the medically-typed part of Josh's bundle. Same brain, same binding,
-narrower view — never a wider one (→ [SPEC §5](docs/SPEC.md#5-personas)).
+- **Access is a property of the person, not the persona.** A session reads every store its member
+  holds. A persona shapes *attention*, never *access*: it can reach nothing the member could not
+  reach by addressing a different persona, so gating it would degrade answers without moving any
+  boundary.
+- **The only access boundary is between people.** It lives in the memory connector and keys off
+  the verified identity — not in the prompt, and not between one person's own personas.
+
+**Domain personas are a direction, not a partition.** The medical advisor is not Josh's persona
+restricted to medical content; it is a prompt that orients the conversation toward medical
+concerns while reading everything Josh holds. That is the point: it is what lets the medical
+advisor notice that a financial pressure is driving a health decision, which a partitioned view
+would make structurally impossible. (This revised
+[SPEC §5](docs/SPEC.md#5-personas), which originally partitioned reads per persona; the section
+now records the correction.)
+
+### Writes, and what the tags are for
+
+Reads are wide; writes are narrow and attributed.
+
+- **Every write lands in the session member's own store**, autonomously
+  (→ [SPEC §4.1](docs/SPEC.md#41-write-policy-reconciled) item 1), tagged with the persona that
+  produced it.
+- **The household store has no autonomous writer.** Nothing writes to it except by
+  human-approved promotion (item 2) — not a personal persona, not a shared one, not the
+  orchestrator. Talking to a household-facing persona changes the *tag* on the write, never its
+  destination.
+
+The tags then pay for themselves several times over, none of it access control:
+
+- **Attribution** — the home manager believes X, the financial advisor believes Y, and you can
+  tell which is which.
+- **Promotion candidacy** — content written under a household-facing persona is the natural set
+  to offer for promotion, so the gate has something specific to ask about.
+- **Review and revert granularity** — git history that can be read one persona at a time.
+- **Relevance** — a persona can surface its own prior context first without being blind to the
+  rest of the store.
+
+**Tags are provenance, not permissions.** The moment they are load-bearing for access, the real
+boundary has been moved into a place that cannot enforce it.
 
 ### A persona is a prompt, not a process
 
 There is no long-running home manager sitting in the house accumulating conversations. A session
 belongs to **one member**; the persona is the prompt that session runs under; memory access
-derives from that member's verified identity. A shared persona therefore cannot reach anything
-the member addressing it could not reach alone — the binding **narrows** what the member already
-holds, and has no way to widen it. Talking to the home manager on Tuesday cannot surface what
+derives from that member's verified identity. A shared persona therefore reaches exactly what
+the member addressing it reaches — no more, and no less. Talking to the home manager on Tuesday cannot surface what
 someone else told the home manager on Monday, because nothing carried over: the persona is text,
 and the only thing that persists is memory, which is scoped per identity.
 
@@ -110,18 +148,11 @@ One implementation consequence is worth writing down, since it is only true by c
 **session state is keyed by the member, never by the persona.** Same prompt, different people,
 no shared conversational memory between them.
 
-Two properties still need handling explicitly:
-
-- **A shared persona has one memory view but a per-speaker policy binding.** It needs to know it
-  is talking to a kid rather than an adult, because a kid's constitution is stricter
-  (→ [SPEC §6](docs/SPEC.md#6-orchestrator--subagents--security-model)). One persona, one
-  memory, many callers, different rules per caller.
-- **Writes are the unresolved part, not reads.** For a personal persona, "own partition"
-  (autonomous writes, [SPEC §4.1](docs/SPEC.md#41-write-policy-reconciled)) and "a space only
-  that person reads" are the same space, so autonomy is safe. For a shared persona the two come
-  apart: the household space is its own partition, so the autonomous-write rule licenses writing
-  to it — but it is also the space every other member reads. Nothing crosses a boundary, so the
-  promotion gate never fires. See [Open questions](#open-questions).
+One property still needs handling explicitly: **a shared persona serves every member but is
+governed per speaker.** It needs to know it is talking to a kid rather than an adult, because a
+kid's constitution is stricter
+(→ [SPEC §6](docs/SPEC.md#6-orchestrator--subagents--security-model)). Same prompt, same stores
+available, different rules per caller.
 
 ### Guardianship is not operation
 
@@ -275,8 +306,10 @@ nowhere else.
 **Contract.** In: an identity, a space, and a read or write. Out: bundle content, or a commit.
 Guarantees: **fail-closed** — a space the identity does not hold is not filtered at query time,
 it is unreachable; every write is a git commit with a `log.md` entry, so review and revert are
-post-hoc rather than pre-approval; own-partition writes are autonomous; cross-space writes are
-not this component's to make.
+post-hoc rather than pre-approval; writes land in the session member's own store, autonomously,
+carrying the tag of the persona that produced them; the household store has no autonomous writer
+at all, and cross-space writes are not this component's to make. Tags are recorded as provenance
+and are never consulted for access — the identity boundary between people is the only gate.
 
 **Candidate (provisional).** OKF bundles (markdown + YAML frontmatter, one per space), git for
 versioning and audit, QMD for retrieval. No vector or graph database until a concrete query
@@ -297,10 +330,11 @@ persona scoping.
 proposals, consolidations, and scoped memory views. Guarantees: it may **propose** a cross-space
 promotion (personal → household) and never perform one — promotion is human-approved, always. It
 owns dedup, contradiction resolution, and staleness. It constructs both persona kinds from one
-rule — **a prompt plus a bound space** — personal personas bound to one person's space, shared
-personas bound to the household space, and domain advisors as typed narrowings within a binding.
-A persona is never a separate agent with private memory of its own, and a shared persona holds
-no conversational state across the members who address it.
+rule — **a system prompt plus the stores the member already holds** — where personal, shared, and
+domain personas differ in what their prompt is for, not in what they may read. It owns the
+per-persona write tagging that makes attribution and promotion candidacy work. A persona is never
+a separate agent with private memory of its own, and holds no conversational state across the
+members who address it.
 
 **Candidate (provisional).** Frontmatter-`type` view construction over the connector's bundles;
 a promote/demote condenser for consolidation; Honcho-style user modeling as an option for
@@ -310,8 +344,9 @@ quality.
 [§5](docs/SPEC.md#5-personas),
 [§11.4](docs/SPEC.md#11-open-risks--honest-notes).
 
-**Not its job.** Enforcing who may see a space — that is the connector's fail-closed boundary. A
-persona view narrows what is already permitted; it never widens it.
+**Not its job.** Enforcing who may see a store — that is the connector's fail-closed boundary
+between people. A persona directs attention within what the member already holds; it never
+extends access, and its tags are provenance rather than permissions.
 
 ## Isolation granularity
 
@@ -370,9 +405,9 @@ to the household, or a new shared persona, is configuration and prose — not a 
 
 | Behavior | Lives as | Enforced by |
 |---|---|---|
-| A new household member's persona | Prompt + a space binding | Memory connector's fail-closed boundary; group claims decide the binding |
-| A new shared persona (home manager, meal planner, trip planner) | Prompt bound to the household space | Same boundary — it can hold no private space, so it cannot leak one |
-| Domain advisors (medical, financial, life) | Prompt + a typed narrowing within a binding | Memory manager builds the view; it may only narrow, never widen |
+| A new household member's persona | Prompt; access follows their verified identity | Memory connector's fail-closed boundary between people; group claims decide what they hold |
+| A new shared persona (home manager, meal planner, trip planner) | Prompt directed at household concerns | Same boundary — it runs as the member addressing it, so it can reach nothing they cannot |
+| Domain advisors (medical, financial, life) | Prompt giving the conversation a direction | Nothing needs to — they read what the member holds; the identity boundary is the only gate |
 | The security constitution | Plain English, compiled | Agent isolation's reference monitor, at tool-call boundaries |
 | "This looks worth promoting to the household space" | Prompt-driven suggestion | Memory manager proposes; a human approves; the connector writes |
 | Tone, voice, house style | Prompt | Nothing — and nothing needs to |
@@ -387,16 +422,17 @@ to the architecture, not to a component.
    the user is.
 2. **Memory spaces fail closed.** Unreachable, not filtered.
 3. **Unblessed data cannot reach a memory write or an external action without a human.**
-4. **Cross-space promotion is always human-approved.** The entity may suggest; it may not
-   promote.
+4. **The household store has no autonomous writer.** Every write lands in a person's own store;
+   the only path into shared memory is human-approved promotion. The entity may suggest; it may
+   not promote.
 5. **Secrets never enter a subagent's context or environment.** Redaction at the display layer
    is not isolation.
 6. **Raw tool payloads never enter inference context.** Project before inject.
 7. **Enforcement is runtime, never prompt-level pleading.** Namespaces, containers, and network
    policy on hardware we control.
 8. **Session state is keyed by the member, never by the persona.** A persona is a prompt applied
-   to one member's session, and access derives from that member's identity — a binding narrows
-   it and can never widen it.
+   to one member's session; access derives from that member's identity, and no persona extends
+   or restricts it.
 
 During phase 1 two of these are temporarily bent by scaffolding, with stated exit conditions —
 see [Build order](#scaffolding-with-exit-conditions). No others are negotiable.
@@ -412,7 +448,7 @@ Per component — condensed from [SPEC §9](docs/SPEC.md#9-mvp-scope).
 | Tool execution isolation | Sandboxed tool-runners, result projection, credential broker | External-write allowlists (every external write is human-approved in MVP) |
 | Agent isolation | Predefined profile catalog, read-only web subagent, blessed/unblessed taint tracking | Orchestrator-proposed new profiles |
 | Memory connector | Two OKF bundles — one personal space plus the household shared space — QMD retrieval, git versioning | Spouse, kid-safe, and per-kid spaces; vector/graph retrieval |
-| Memory manager | One personal persona set with domain narrowings, one shared persona over the household space, autonomous own-partition writes, human-gated promotion | Additional people's personas; consolidation/compaction; promotion-friction UX |
+| Memory manager | One personal persona set plus domain personas, one shared persona, per-persona write tagging, autonomous writes to the member's own store, human-gated promotion | Additional people's personas; consolidation/compaction; promotion-friction UX |
 
 ## Build order
 
@@ -482,11 +518,6 @@ Each of these is unresolved and known — detail in
 - **Parent-of must be distinguishable from operator-of** in the enforcement layer, or spousal
   privacy is only conventional. Guardian visibility is a family-policy decision with a technical
   consequence, and it should sunset as children age.
-- **Are a shared persona's writes autonomous?** The household space is that persona's own
-  partition, which licenses autonomous writes — and is also the space everyone else reads, so
-  something said in passing to the home manager can become household-visible without anyone
-  approving a promotion, since structurally nothing crossed a space boundary. Gating every such
-  write is safe and tedious in exact proportion to how useful the home manager is. Undecided.
 - **What licenses the entity to speak first?** Proactive initiation — and what it may observe in
   order to have something to say — is unaddressed in MVP.
 

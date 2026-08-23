@@ -43,11 +43,16 @@ It is one entity across modalities: work done at the terminal Tuesday is known t
 
 ## 5. Personas
 
-**A persona = prompt + scoped memory view. Not a separate agent, not private memory.** Same brain, different voice, different slice of the graph.
+**A persona = system prompt + the data stores available for context. Not a separate agent, not private memory.** Same brain, different direction.
 
-- Initial roster: medical advisor, financial advisor, life advisor, household chief-of-staff.
+> **Revised after the interview** (see the [README](../README.md#a-persona-is-a-system-prompt-plus-the-stores-you-already-hold)). This section originally read "prompt + scoped memory view … different slice of the graph," with per-persona read partitioning. Two corrections: personas come in a **personal** and a **shared** kind, and a persona **directs** a conversation rather than restricting what it may read. The original wording is preserved in git history.
+
+- **Personal personas** serve one person; **shared personas** (home manager, household chief-of-staff) are addressable by every member and directed at household-level concerns. Both run as the member addressing them.
+- Domain roster within a person's personas: medical advisor, financial advisor, life advisor.
 - The orchestrator knows the roster and routes conversations to the appropriate persona.
-- **Per-person memory partitions within each persona domain** (frontmatter `type` scoping within the person's bundle — e.g., medical-typed concepts readable only by the medical persona).
+- **A persona reads every store the member holds** — their own, plus the household store. Read-gating by persona would only degrade answers: it is the same human, in the same session, with the same rights. The sole access boundary is *between people*, enforced on verified identity.
+- **Per-persona tagging within the person's bundle** (frontmatter): every write lands in the session member's own store carrying the tag of the persona that produced it. Tags are provenance — attribution, promotion candidacy, revert granularity, relevance ordering — and are never consulted for access.
+- **The household store has no autonomous writer.** The only path into it is human-approved promotion (§4.1.2), whichever persona was being addressed.
 - ⚠ **Parental visibility rule (not admin visibility):** visibility follows the guardianship relationship, not system operation. Parents have insight into their children's persona conversations, including medical. **Adults' partitions are private to each adult** — operating the infrastructure grants no read access to a spouse's space. This is a deliberate family-policy decision, accepted with the stated commitment to treat that access appropriately; it should be disclosed to household users rather than silent, and it naturally sunsets as children reach adulthood.
 
 ## 6. Orchestrator & Subagents — Security Model
