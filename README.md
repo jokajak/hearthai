@@ -101,15 +101,46 @@ Not everything happens in a conversation. Periodic jobs read the accumulated cor
 |---|---|---|
 | **Sharing** | knowledge in your private store that belongs in a memory store you are in | *"should this go in the family store?"* |
 | **Routines** | things you repeat — same request, same shape, same cadence | *"want me to do this every Monday?"* |
-| **Skills** | procedures you have worked through more than once | *"want me to save how this is done?"* |
+| **Skills** | procedures you have worked through more than once | *"want me to save how this is done — and is it shareable?"* |
 
 One shape, three analyses: read the corpus, notice something, ask. They run on a schedule rather
 than live because the patterns worth noticing are only visible across weeks of accumulation, not
 in the current turn — and keeping them off the request path lets the analysis be slow, thorough,
 and auditable on its own.
 
-A learned skill is stored as memory with a different frontmatter type: procedural rather than
-declarative, versioned and reviewable exactly like the rest.
+### Skills are Agent Skills
+
+Not a memory type — the open [Agent Skills](https://agentskills.io) format, originally from
+Anthropic. A skill is a folder holding a `SKILL.md` (`name` and `description` in frontmatter,
+instructions in the body) and optionally `scripts/`, `references/`, and `assets/`. Agents load
+them by progressive disclosure: names and descriptions at startup, the full instructions only
+once a task matches one, bundled code only when it runs. Many skills therefore cost almost no
+context until they are needed.
+
+Skills live in memory stores and are versioned in git alongside everything else there, but they
+are not memory. Memory is what the system knows; a skill is a procedure it can follow.
+
+**Adopting the format rather than inventing one is the whole point.** A skill hearthai learns
+works unchanged in Claude Code, OpenClaw, Hermes, Letta, ZeroClaw, Goose and everything else that
+supports it — four of which are already in this README's prior art, and one of which is the kind
+of host the memory layer gets built inside first. Learned skills are usable there from day one
+instead of trapped in hearthai.
+
+Skills arrive two ways: written by the scheduled analysis, or installed deliberately by a user
+from the wider ecosystem. Installing is a human act, so third-party code never enters because the
+system reached for it on its own.
+
+**Sharing works differently for skills than for memory.** hearthai asks once, when the skill is
+created, whether it is shareable; that answer decides where it lives. A skill in a shared memory
+store is then available to every member automatically, with no further approval per person or per
+use. One marked private stays in its creator's private store. This is not an exception to
+invariant 4 — a human still approves before anything reaches a shared store — it is the same
+approval granted once at creation rather than per write.
+
+⚠ One gap that opens: **a skill gets revised, and a memory fact does not.** If the scheduled
+analysis refines a skill already sitting in a shared store, the revision reaches every member
+automatically, including changes to bundled scripts their agents execute. Creation-time
+shareability does not cover later revisions. Unresolved.
 
 **Proposals wait in a queue until you answer them.** They surface either in your next session —
 the cheap path, nothing interrupts you — or as an interactive prompt when something deserves
@@ -163,7 +194,8 @@ hearthai *is*.
 MVP: OIDC login, one private memory store per user, user-created shared memory stores with invitations,
 OKF bundles under git with QMD retrieval, autonomous private writes with approved shared writes,
 persona prompts, pluggable inference, and the scheduled sharing analysis with its proposal
-queue. Routine and skill learning follow once there is a corpus worth mining. Deferred: consolidation and compaction behavior,
+queue. Routine and skill *learning* follow once there is a corpus worth mining; using and installing
+Agent Skills is not gated on that. Deferred: consolidation and compaction behavior,
 sensitivity-based inference routing, vector or graph retrieval, and any allowlist for external
 writes — those stay human-approved.
 
@@ -192,9 +224,12 @@ Detail and links in [`docs/SPEC.md`](docs/SPEC.md#12-references).
 - **[OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf)** — markdown +
   YAML frontmatter bundles, git-native and readable with `cat`.
 - **QMD** — local-first hybrid retrieval over markdown.
-- **Letta / MemGPT** — explicit, editable memory blocks; the inspectability argument.
+- **Letta / MemGPT** — explicit, editable memory blocks; the inspectability argument. Also
+  supports Agent Skills.
 - **Zep (Graphiti), Mem0** — the upgrade path if file-based retrieval hits its ceiling.
-- **ZeroClaw** — encrypted secrets and scoped filesystem access by default.
+- **[Agent Skills](https://agentskills.io)** — open format for packaging procedural knowledge as
+  a `SKILL.md` folder; progressive disclosure; portable across skills-compatible agents.
+- **ZeroClaw** — encrypted secrets and scoped filesystem access by default; supports Agent Skills.
 - **Honcho** — dialectic user modeling; a candidate for the memory-quality problem.
 - **OpenAGI** — directional adaptive scrutiny (act / ask / watch / ignore / delegate) and a
   promote-demote condenser over tiered memory.
