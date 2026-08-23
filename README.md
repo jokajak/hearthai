@@ -92,6 +92,40 @@ Writes carry the persona that produced them as a tag. That is **provenance, not 
 it supports attribution, promotion candidates, and per-persona review of git history, and it is
 never consulted for access.
 
+## What runs on a schedule
+
+Not everything happens in a conversation. Periodic jobs read the accumulated corpus and produce
+**proposals** — never actions.
+
+| Analysis | Looks for | Proposes |
+|---|---|---|
+| **Sharing** | knowledge in your private store that belongs in a datastore you are in | *"should this go in the family store?"* |
+| **Routines** | things you repeat — same request, same shape, same cadence | *"want me to do this every Monday?"* |
+| **Skills** | procedures you have worked through more than once | *"want me to save how this is done?"* |
+
+One shape, three analyses: read the corpus, notice something, ask. They run on a schedule rather
+than live because the patterns worth noticing are only visible across weeks of accumulation, not
+in the current turn — and keeping them off the request path lets the analysis be slow, thorough,
+and auditable on its own.
+
+A learned skill is stored as memory with a different frontmatter type: procedural rather than
+declarative, versioned and reviewable exactly like the rest.
+
+**Proposals wait in a queue until you answer them.** They surface either in your next session —
+the cheap path, nothing interrupts you — or as an interactive prompt when something deserves
+attention now. An unanswered proposal expires; nothing acts by default. A learned routine needs
+more than a yes, since "other people can read this" and "the system now acts without being asked"
+are different sizes of decision: approving one means approving what it may do, not just that it
+may run.
+
+This also settles a question the design otherwise leaves open — *what licenses the system to
+speak first?* **A pending proposal does, and nothing else does.**
+
+**Intent inference lives as prompts and hooks, not as machinery.** Scoring an incoming signal for
+urgency, novelty and risk to decide whether to act, ask, watch, or ignore — OpenAGI's directional
+adaptive scrutiny — and PAI's hook-driven context assembly are behavior: system prompts and hook
+points, changed by editing text rather than by shipping a component.
+
 ## Components
 
 Six replaceable parts, each with a contract, so any one can be swapped. The first three are the
@@ -101,7 +135,7 @@ product; the last three are internal features that keep it honest.
 |---|---|---|
 | **User interface** | Surfaces — web, phone, terminal — and the point where a person becomes a verified identity. Hands the session an identity claim and the datastores it holds. | OIDC against any provider |
 | **Memory connector** | Read and write access to datastores. Fail-closed on membership: a store you are not in is unreachable, not filtered. Every write is a git commit. | OKF bundles (markdown + YAML frontmatter), git, QMD retrieval |
-| **Memory manager** | Keeps memory good over years: what to keep, dedup, contradictions, staleness. Proposes writes into shared datastores; never performs them. Owns persona tagging. | Condenser over the bundles |
+| **Memory manager** | Keeps memory good over years. Runs mostly as scheduled analysis rather than in the request path: dedup, contradictions, staleness, and the three proposal jobs above. Owns persona tagging and the proposal queue. | Condenser over the bundles; cron on the cluster |
 | **Inference engine** | Model access behind one interface, so which model answers is a routing decision. | LiteLLM; cloud primary, local when available |
 | **Tool execution isolation** | Where tool calls run and what they may touch. Guarantees: sandboxed filesystem and network, secrets never in an agent's context or environment, results projected before they reach a model. | Containers + NetworkPolicy; MCP as the tool standard |
 | **Agent isolation** | Which subagents may be spawned, and tracking whether data came from a person or from the web. Untrusted content cannot reach a write or an external action without a human. | Compiled policy; CaMeL-style planner/quarantine split |
@@ -120,13 +154,16 @@ hearthai *is*.
 5. **A persona never changes access.** It directs attention within what the user already holds.
 6. **Secrets never enter an agent's context or environment.** Redaction at the display layer is
    not isolation.
-7. **Enforcement is runtime, not prompt-level pleading.**
+7. **Scheduled analysis proposes; it never acts.** No background job writes to a shared
+   datastore, runs a routine, or contacts anyone without a person answering first.
+8. **Enforcement is runtime, not prompt-level pleading.**
 
 ## Status and build order
 
 MVP: OIDC login, one private datastore per user, user-created shared datastores with invitations,
 OKF bundles under git with QMD retrieval, autonomous private writes with approved shared writes,
-persona prompts, and pluggable inference. Deferred: consolidation and compaction behavior,
+persona prompts, pluggable inference, and the scheduled sharing analysis with its proposal
+queue. Routine and skill learning follow once there is a corpus worth mining. Deferred: consolidation and compaction behavior,
 sensitivity-based inference routing, vector or graph retrieval, and any allowlist for external
 writes — those stay human-approved.
 
@@ -138,9 +175,9 @@ serializable interface to a foreign host also proves the component contract inst
 it. Identity, datastore, and write-provenance are parameters on that interface from the first
 commit, even while the interim host can only supply one of each.
 
-Two things are unresolved. **Memory quality has no owner yet** — autonomous writes remove the
-bottleneck but not the entropy. And **nothing licenses the agent to speak first**; proactivity,
-and what it may observe in order to have something to say, is unaddressed.
+One thing is unresolved: **memory quality is now owned but unproven.** The scheduled jobs are the
+answer to entropy on paper; whether dedup, contradiction resolution, and staleness handling
+actually work is the thing months of real writes will decide.
 
 ## Prior art
 
@@ -158,7 +195,11 @@ Detail and links in [`docs/SPEC.md`](docs/SPEC.md#12-references).
 - **Letta / MemGPT** — explicit, editable memory blocks; the inspectability argument.
 - **Zep (Graphiti), Mem0** — the upgrade path if file-based retrieval hits its ceiling.
 - **ZeroClaw** — encrypted secrets and scoped filesystem access by default.
-- **Honcho**, **OpenAGI** — candidate mechanisms for the memory-quality problem.
+- **Honcho** — dialectic user modeling; a candidate for the memory-quality problem.
+- **OpenAGI** — directional adaptive scrutiny (act / ask / watch / ignore / delegate) and a
+  promote-demote condenser over tiered memory.
+- **PAI** (Daniel Miessler) — hook-driven context assembly, and intent inference as prompts
+  rather than infrastructure.
 
 None of them provide the load-bearing requirement: per-user private memory with user-created
 sharing on top.
