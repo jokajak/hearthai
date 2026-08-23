@@ -1,571 +1,164 @@
 # hearthai
 
-**An AI for a household, not for a person.** The household is the unit hearthai is designed
-around — not one assistant with extra user accounts bolted onto it.
+An AI that serves a group of people rather than one person. Everyone who uses it has a private
+memory that nobody else can reach — not other members, not whoever runs the server — and shares
+what they choose to by putting it in a datastore they invite others into.
 
-Everyone in the house gets **their own persona**: an assistant bound to their own private memory
-space, which knows their history, their preferences, and their ongoing concerns, and which no
-one else in the house can read. Alongside those sit **shared personas** — a home manager is the
-obvious one — that every member can talk to, working from the household's shared memory rather
-than from anyone's private space.
-
-**Memory is what makes this worth more than a chatbot.** A model without context can answer
+**Memory is what makes it worth more than a chatbot.** A model without context can answer
 questions; it cannot notice that the dentist appointment collides with a soccer match, that this
-is the third time this quarter the same bill has been queried, or that a decision made in March
-is the reason for the constraint being hit in November. The context accumulated per person and
-per household *is* the product. The other five components exist to gather that context safely,
-keep it good, and make sure it never leaks across the people it belongs to.
+is the third time this quarter the same bill has come up, or that a decision made in March is the
+reason for the constraint being hit in November. The accumulated context is the product.
+Everything else exists to gather it, keep it good, and keep it where it belongs.
 
-It is one entity across surfaces — phone, web, terminal — and it has almost no privileges of its
-own: everything it does to the world happens inside a constrained, ephemeral subagent that the
-runtime, not the prompt, keeps on a leash.
+**Status: pre-design.** Nothing is built. [`docs/SPEC.md`](docs/SPEC.md) holds the longer
+behavioral spec this is drawn from; where the two disagree, this README is current. No technology
+choice here is committed. Licensed AGPL-3.0.
 
-**Status: pre-design.** Nothing is built yet. The behavior this is aiming at is specified in
-[`docs/SPEC.md`](docs/SPEC.md); this README is the implementation-side view of that document —
-the parts the system is made of. No technology choice below is committed; every one is a
-candidate.
-
-Licensed AGPL-3.0.
-
-## Design stance
-
-- **Memory is the product; the rest is plumbing.** Five components exist to let the sixth
-  accumulate trustworthy context per person and per household. When a tradeoff is unclear,
-  resolve it in favour of memory that is durable, legible, and correctly partitioned.
-- **Six components, each with a contract.** Any one can be swapped without rewriting the others.
-  If a feature does not fit a component's contract, that is a signal to widen the contract on
-  purpose, not to grow a seventh box by accident.
-- **Most features are prompts and policy, not components.** Personas, routing, tone, and the
-  security constitution are all text over these six. That is where the leverage is — and why the
-  component list can stay this short.
-- **The orchestrator is deliberately low-privilege.** Its effective power is exactly the union of
-  the subagent profiles it can spawn, so the spawn catalog is the security boundary: keep it
-  small and reviewed (→ [SPEC §6](docs/SPEC.md#6-orchestrator--subagents--security-model)).
-
-## The household model
-
-### People and spaces
-
-Every person in the house holds **one private memory space**. The household holds **one shared
-space**. Spaces are fail-closed: a space an identity does not hold is not filtered out of results
-at query time, it is unreachable. Group claims from the identity provider (`adults`, `kids`,
-per-user) are what map a verified person onto the spaces they hold
-(→ [SPEC §3](docs/SPEC.md#3-identity--access),
-[§4](docs/SPEC.md#4-memory-architecture)).
+## How it works
 
 ```mermaid
 flowchart TB
-    J["Josh"]:::person
-    JS["<b>Session as Josh</b><br/>whichever persona he addresses —<br/>his own, a domain advisor,<br/>or the shared home manager"]:::sess
-    JST[("<b>Josh's store</b><br/>every write lands here,<br/>tagged with the persona<br/>that produced it")]:::store
-    HUMAN{{"Josh approves"}}:::gate
-    HH[("<b>Household store</b><br/>readable by every member<br/><i>no autonomous writer</i>")]:::shared
-    OTHER[("spouse's store · kid's store<br/><i>one per person, same pattern</i>")]:::locked
+    U["Alice · Bob · Carol"]:::person
+    OIDC["<b>OIDC login</b><br/>any provider"]:::gate
+    H["<b>hearthai</b><br/>persona = a system prompt<br/>access follows the user"]:::core
+    INF["<b>Inference</b><br/>pluggable via LiteLLM"]:::inf
+    PRIV[("<b>Alice's private store</b><br/><i>never shareable</i>")]:::priv
+    SH1[("<b>Family</b><br/>a datastore Alice<br/>was invited into")]:::shared
+    SH2[("<b>Trip planning</b><br/>another one")]:::shared
+    OK{{"Alice approves"}}:::gate
 
-    J --> JS
-    JS <-->|"read · write"| JST
-    HH -->|"read"| JS
-    JST -. "promotion proposed" .-> HUMAN
-    HUMAN -. "the only way in" .-> HH
-    JS -. "fail-closed: unreachable" .-x OTHER
-
-    classDef person fill:#e8ddf5,stroke:#6b46a8,stroke-width:2px,color:#1a1a1a
-    classDef sess fill:#d6e9fb,stroke:#2a6fb0,stroke-width:2px,color:#1a1a1a
-    classDef store fill:#c9e8d4,stroke:#1f6b41,stroke-width:2px,color:#1a1a1a
-    classDef shared fill:#fff3bf,stroke:#a68b00,stroke-width:3px,color:#1a1a1a
-    classDef gate fill:#fde9c8,stroke:#c47f17,stroke-width:2px,color:#1a1a1a
-    classDef locked fill:#eeeeee,stroke:#999999,stroke-width:2px,stroke-dasharray:5 4,color:#555555
-```
-
-One person's view; every member has the same shape. Solid arrows both ways to your own store,
-solid one way *out* of the household store, and the only edge *into* shared memory is dotted —
-because a human is standing on it. The greyed store is the boundary that actually matters: other
-people's memory is unreachable, not filtered.
-
-### A persona is a system prompt plus the stores you already hold
-
-A persona is two things: the system prompt that gives it its direction, and the set of data
-stores available to it for context. What separates a personal persona from a shared one is what
-its prompt is *for*, not what it is allowed to see.
-
-| | Its prompt directs it toward | Reads | Writes land in |
-|---|---|---|---|
-| **Personal persona** | that person's own life and concerns | their own store, plus the household store | their own store, tagged with the persona |
-| **Shared persona** | household-level concerns | the same — whatever the addressing member holds | the addressing member's store, tagged with the persona |
-
-Two rules make that table work:
-
-- **Access is a property of the person, not the persona.** A session reads every store its member
-  holds. A persona shapes *attention*, never *access*: it can reach nothing the member could not
-  reach by addressing a different persona, so gating it would degrade answers without moving any
-  boundary.
-- **The only access boundary is between people.** It lives in the memory connector and keys off
-  the verified identity — not in the prompt, and not between one person's own personas.
-
-**Domain personas are a direction, not a partition.** The medical advisor is not Josh's persona
-restricted to medical content; it is a prompt that orients the conversation toward medical
-concerns while reading everything Josh holds. That is the point: it is what lets the medical
-advisor notice that a financial pressure is driving a health decision, which a partitioned view
-would make structurally impossible. (This revised
-[SPEC §5](docs/SPEC.md#5-personas), which originally partitioned reads per persona; the section
-now records the correction.)
-
-### Writes, and what the tags are for
-
-Reads are wide; writes are narrow and attributed.
-
-- **Every write lands in the session member's own store**, autonomously
-  (→ [SPEC §4.1](docs/SPEC.md#41-write-policy-reconciled) item 1), tagged with the persona that
-  produced it.
-- **The household store has no autonomous writer.** Nothing writes to it except by
-  human-approved promotion (item 2) — not a personal persona, not a shared one, not the
-  orchestrator. Talking to a household-facing persona changes the *tag* on the write, never its
-  destination.
-
-The tags then pay for themselves several times over, none of it access control:
-
-- **Attribution** — the home manager believes X, the financial advisor believes Y, and you can
-  tell which is which.
-- **Promotion candidacy** — content written under a household-facing persona is the natural set
-  to offer for promotion, so the gate has something specific to ask about.
-- **Review and revert granularity** — git history that can be read one persona at a time.
-- **Relevance** — a persona can surface its own prior context first without being blind to the
-  rest of the store.
-
-**Tags are provenance, not permissions.** The moment they are load-bearing for access, the real
-boundary has been moved into a place that cannot enforce it.
-
-### A persona is a prompt, not a process
-
-There is no long-running home manager sitting in the house accumulating conversations. A session
-belongs to **one member**; the persona is the prompt that session runs under; memory access
-derives from that member's verified identity. A shared persona therefore reaches exactly what
-the member addressing it reaches — no more, and no less. Talking to the home manager on Tuesday cannot surface what
-someone else told the home manager on Monday, because nothing carried over: the persona is text,
-and the only thing that persists is memory, which is scoped per identity.
-
-One implementation consequence is worth writing down, since it is only true by construction:
-**session state is keyed by the member, never by the persona.** Same prompt, different people,
-no shared conversational memory between them.
-
-One property still needs handling explicitly: **a shared persona serves every member but is
-governed per speaker.** It needs to know it is talking to a kid rather than an adult, because a
-kid's constitution is stricter
-(→ [SPEC §6](docs/SPEC.md#6-orchestrator--subagents--security-model)). Same prompt, same stores
-available, different rules per caller.
-
-### Guardianship is not operation
-
-Visibility follows the guardianship relationship, not who runs the cluster. Parents have insight
-into their children's personas; **adults' spaces are private to each adult**, and operating the
-infrastructure grants no read access to a spouse's space. The enforcement layer therefore has to
-distinguish *parent-of* from *operator-of*, or spousal privacy is merely conventional. This is a
-family-policy decision with a technical consequence, it should be disclosed to household members
-rather than silent, and it narrows as children reach adulthood
-(→ [SPEC §5](docs/SPEC.md#5-personas),
-[§11.3](docs/SPEC.md#11-open-risks--honest-notes)).
-
-## Architecture at a glance
-
-```mermaid
-flowchart TB
-    J["Josh"]:::person
-    SP["spouse"]:::person
-    K["kid"]:::person
-    AUTH["<b>Authentik — OIDC</b><br/>group claims decide<br/>which stores you hold"]:::gate
-    SURF["<b>User interface</b><br/>phone · web · terminal<br/><i>terminal also lends the laptop<br/>as an execution endpoint</i>"]:::ui
-    PER["<b>Persona</b><br/>a system prompt: personal, shared, or domain<br/><i>directs attention — never gates access</i>"]:::persona
-    ORCH["<b>Orchestrator</b><br/>low privilege by design:<br/>no tools · no network · no secrets"]:::orch
-    INF["<b>Inference engine</b> — LiteLLM<br/>cloud primary · laptop when present"]:::inf
-    MM["<b>Memory manager</b><br/>what to keep · dedup · staleness<br/>persona tagging · promotion proposals"]:::mem
-    MC["<b>Memory connector</b><br/>fail-closed on verified identity"]:::mem
-    OWN[("<b>Member's own store</b><br/>OKF + git · writes land here,<br/>tagged with the persona")]:::store
-    HH[("<b>Household store</b><br/>readable by every member<br/><i>no autonomous writer</i>")]:::store
-    AI["<b>Agent isolation</b><br/>blessed / unblessed provenance<br/>allow · escalate · deny"]:::sec
-    QP["<b>Quarantined reader</b><br/>a model, no tools"]:::sub
-    TR["<b>Tool runner</b><br/>no model, one call"]:::sub
-    TEI["<b>Tool execution isolation</b><br/>sandbox · NetworkPolicy · credential broker<br/><i>projects every result before it reaches a model</i>"]:::sec
-    WORLD["the world<br/>web · email · services"]:::world
-    HUMAN{{"a human says yes"}}:::gate
-
-    J --> AUTH
-    SP --> AUTH
-    K --> AUTH
-    AUTH -->|"verified claim, never chat-asserted"| SURF
-    SURF --> PER
-    PER --> ORCH
-    ORCH <--> INF
-    ORCH <--> MM
-    MM --- MC
-    MC -->|read| OWN
-    MC -->|read| HH
-    MC -->|"write, autonomous"| OWN
-    OWN -.->|"promotion proposal"| HUMAN
-    HUMAN -.->|"approved — the only way in"| HH
-    ORCH -->|"spawn request"| AI
-    AI --> QP
-    AI --> TR
-    QP -->|"labeled value"| ORCH
-    TR --> TEI
-    QP --> TEI
-    TEI --> WORLD
-    WORLD -.->|"unblessed data"| TEI
+    U --> OIDC
+    OIDC -->|"verified identity"| H
+    H <--> INF
+    H <-->|"read · write, autonomous"| PRIV
+    SH1 -->|read| H
+    SH2 -->|read| H
+    H -. "proposed" .-> OK
+    OK -. "approved — the only way in" .-> SH1
+    OK -. "approved" .-> SH2
 
     classDef person fill:#e8ddf5,stroke:#6b46a8,stroke-width:2px,color:#1a1a1a
     classDef gate fill:#fde9c8,stroke:#c47f17,stroke-width:2px,color:#1a1a1a
-    classDef ui fill:#d6e9fb,stroke:#2a6fb0,stroke-width:2px,color:#1a1a1a
-    classDef persona fill:#d9f0e3,stroke:#2e8b57,stroke-width:2px,color:#1a1a1a
-    classDef orch fill:#fff3bf,stroke:#a68b00,stroke-width:3px,color:#1a1a1a
+    classDef core fill:#fff3bf,stroke:#a68b00,stroke-width:3px,color:#1a1a1a
     classDef inf fill:#e5e5e5,stroke:#666666,stroke-width:2px,color:#1a1a1a
-    classDef mem fill:#d9f0e3,stroke:#2e8b57,stroke-width:2px,color:#1a1a1a
-    classDef store fill:#c9e8d4,stroke:#1f6b41,stroke-width:2px,color:#1a1a1a
-    classDef sec fill:#fadada,stroke:#b03030,stroke-width:2px,color:#1a1a1a
-    classDef sub fill:#fdeaea,stroke:#c25555,stroke-width:2px,color:#1a1a1a
-    classDef world fill:#e5e5e5,stroke:#888888,stroke-width:2px,stroke-dasharray:4 3,color:#1a1a1a
+    classDef priv fill:#c9e8d4,stroke:#1f6b41,stroke-width:2px,color:#1a1a1a
+    classDef shared fill:#d6e9fb,stroke:#2a6fb0,stroke-width:2px,color:#1a1a1a
 ```
 
-**Green is what the entity knows. Red is what it may do. Yellow is the orchestrator, holding
-neither capability directly** — it reasons, and everything else is delegated to something the
-runtime keeps on a leash. Dotted edges are the two places a human stands in the path: approving
-a promotion into shared memory, and the return of unblessed data from the world.
+Alice's view. Bob and Carol each have the same shape: their own private store, plus whichever
+datastores they have been invited into. Reads are wide — everything Alice holds. Writes are
+narrow: straight into her private store, and into a shared datastore only when she says yes.
+
+## Users and datastores
+
+| Concept | Rule |
+|---|---|
+| **User** | Authenticates through any OIDC provider. Identity is a verified claim, never something asserted in chat. |
+| **Private datastore** | Exactly one per user, created with the account. **Never shareable** — there is no invite, no admin override, no operator read. |
+| **Shared datastore** | Created by a user, who invites others. Membership is the access rule; there is nothing else to configure. |
+| **Access** | A session reads the user's private store plus every datastore they are a member of. Nothing else exists to it. |
+| **Writes** | Autonomous into the user's own private store. Human-approved into any shared datastore. |
+
+Three things follow that are worth being explicit about.
+
+**A household is not a concept in the system.** It is a datastore someone created and invited
+their family into. So are a couple's shared finances, a project with a colleague, and a trip with
+friends. One mechanism covers all of them, and none of them needed to be designed for.
+
+**Non-shareable means non-shareable.** The private store's unshareability is a property of the
+store, not a permission that could be granted later. Running the server does not grant it. This
+is the one thing in the system that has no override, which is what makes the rest safe to use
+casually.
+
+**Approval is what makes sharing deliberate.** Anything landing where other people can read it
+passes a human first. The agent proposes; a person says yes. In practice this is conversational
+— *"want me to put that in the family store?"* — not an administrative queue.
+
+## Personas
+
+A persona is **a system prompt**. It gives the conversation a direction — a home manager, a
+medical advisor, a financial advisor — and that is the whole of it.
+
+Access always follows the user, never the persona. A persona reads exactly what its user holds,
+so switching personas cannot reach anything new, and restricting one would only make its answers
+worse: a medical advisor that cannot see financial context cannot notice that a financial
+pressure is driving a health decision. **Personas direct attention; the datastore membership
+boundary is what actually gates.**
+
+Adding a persona is therefore writing a prompt, not building a subsystem. So is adding a person,
+or a new shared datastore. That is where most of hearthai's behavior is meant to live.
+
+Writes carry the persona that produced them as a tag. That is **provenance, not permission** —
+it supports attribution, promotion candidates, and per-persona review of git history, and it is
+never consulted for access.
 
 ## Components
 
-Each component is described the same way: what it is responsible for, its contract, the
-candidate technology (provisional), the spec sections it satisfies, and what is explicitly not
-its job.
+Six replaceable parts, each with a contract, so any one can be swapped. The first three are the
+product; the last three are internal features that keep it honest.
 
-### 1. Inference engine
-
-**Responsibility.** Model access behind one interface, so that which model answers is a routing
-decision rather than an architectural one.
-
-**Contract.** In: messages, tool schemas, and a routing hint. Out: a completion. Guarantees: the
-caller never encodes a provider; routing is data the caller supplies, not logic the caller
-implements. Today the hint is availability-shaped; the interface must be able to carry a
-*sensitivity* hint later without a caller rewrite.
-
-**Candidate (provisional).** LiteLLM as the pluggable layer. Cloud APIs as the primary brain,
-with the laptop as an opportunistic local endpoint when it happens to be on.
-
-**Satisfies.** [SPEC §8](docs/SPEC.md#8-inference-tiering).
-
-**Not its job.** Deciding whether a given conversation is *allowed* to leave the house — that is
-policy, and it enters as a routing hint. The engine enforces nothing.
-
-### 2. User interface
-
-**Responsibility.** The surfaces the entity is reachable through, and the point at which a human
-becomes a verified identity.
-
-**Contract.** In: an authenticated human on some surface. Out: a session carrying a **verified
-identity claim**, the memory spaces that identity holds, and modality metadata. Guarantees:
-identity is never a fact asserted in chat text; a surface that cannot verify identity cannot
-open a session. The terminal surface additionally registers the laptop as an execution endpoint
-for the lifetime of that session — presence is the approval, and the capability dies with the
-session.
-
-**Candidate (provisional).** Authentik OIDC in front of everything, with group claims
-(`adults`, `kids`, per-user) mapped to memory spaces. Web/phone chat first; terminal second.
-
-**Satisfies.** [SPEC §2](docs/SPEC.md#2-modalities),
-[§3](docs/SPEC.md#3-identity--access),
-[§7](docs/SPEC.md#7-trust-flow--trust-flows-down-never-up) (item 3).
-
-**Not its job.** Deciding what a given identity may read or write. It states who this is; the
-memory connector and agent isolation act on that.
-
-### 3. Tool execution isolation
-
-**Responsibility.** Where tool calls actually run, what they may touch, and what comes back.
-
-**Contract.** In: a tool call plus the scoped profile it runs under. Out: a *projected* result.
-Guarantees: (a) filesystem, network, and process constraints are enforced by the runtime, not
-requested of the model; (b) raw tool payloads never enter inference context — every result is
-projected to task-relevant fields before injection, with quarantined summarization only as a
-last resort and always provenance-labelled; (c) secrets never enter a subagent's context or
-environment — the credential broker holds the real credentials outside every container boundary
-and mints short-lived scoped tokens per spawn.
-
-**Candidate (provisional).** Containers plus NetworkPolicy on the home Kubernetes cluster; MCP
-retained as the standardization layer for system access; IronCurtain evaluated as the
-enforcement runtime under our own orchestrator rather than as a substrate.
-
-**Satisfies.** [SPEC §6](docs/SPEC.md#6-orchestrator--subagents--security-model),
-[§11.2](docs/SPEC.md#11-open-risks--honest-notes),
-[§11.6](docs/SPEC.md#11-open-risks--honest-notes).
-
-**Not its job.** Deciding whether a call is permitted. It is the jail, not the judge; agent
-isolation decides, this executes what was allowed.
-
-### 4. Agent isolation
-
-**Responsibility.** Who may spawn what, and how data provenance survives the trip between
-agents. This is the injection defense.
-
-**Contract.** In: a spawn request plus the current session's provenance state. Out: an ephemeral
-subagent bound to a catalog profile, or a denial, or an escalation to a human. Guarantees:
-direct human input is **blessed**; web, file, and message content is **unblessed** by default;
-provenance is tracked through every operation and survives transformation (including
-summarization); policy is evaluated deterministically at tool-call boundaries. Injection becomes
-a data-flow question — *is this data allowed here?* — not a text-pattern question.
-
-Shape: a **privileged planner** that sees only blessed input and produces the plan;
-**quarantined processors** that read untrusted content with no tool access; a **deterministic
-reference monitor** that decides. A session that has ingested unblessed content cannot write
-memory or spawn write-capable subagents without a human.
-
-**Candidate (provisional).** A plain-English constitution compiled into allow/escalate/deny
-rules, with per-space constitutions (a kid's is stricter than an adult's). CaMeL/FIDES as the
-reference architecture.
-
-**Satisfies.** [SPEC §6](docs/SPEC.md#6-orchestrator--subagents--security-model),
-[§7](docs/SPEC.md#7-trust-flow--trust-flows-down-never-up),
-[§11.1](docs/SPEC.md#11-open-risks--honest-notes).
-
-**Not its job.** Sandboxing. It says yes, no, or ask-a-human; tool execution isolation makes the
-yes safe to run.
-
-### 5. Memory connector
-
-**Responsibility.** Memory as *storage*: getting bytes in and out of the right space, and
-nowhere else.
-
-**Contract.** In: an identity, a space, and a read or write. Out: bundle content, or a commit.
-Guarantees: **fail-closed** — a space the identity does not hold is not filtered at query time,
-it is unreachable; every write is a git commit with a `log.md` entry, so review and revert are
-post-hoc rather than pre-approval; writes land in the session member's own store, autonomously,
-carrying the tag of the persona that produced them; the household store has no autonomous writer
-at all, and cross-space writes are not this component's to make. Tags are recorded as provenance
-and are never consulted for access — the identity boundary between people is the only gate.
-
-**Candidate (provisional).** OKF bundles (markdown + YAML frontmatter, one per space), git for
-versioning and audit, QMD for retrieval. No vector or graph database until a concrete query
-fails without one.
-
-**Satisfies.** [SPEC §4](docs/SPEC.md#4-memory-architecture),
-[§4.1](docs/SPEC.md#41-write-policy-reconciled).
-
-**Not its job.** Judging whether something is worth remembering, or whether two memories
-contradict. It stores what it is told, in the space it is allowed to.
-
-### 6. Memory manager
-
-**Responsibility.** Memory as *a thing that has to stay good over years*. Also the owner of
-persona scoping.
-
-**Contract.** In: conversation, retrieval results, and the existing bundles. Out: write
-proposals, consolidations, and scoped memory views. Guarantees: it may **propose** a cross-space
-promotion (personal → household) and never perform one — promotion is human-approved, always. It
-owns dedup, contradiction resolution, and staleness. It constructs both persona kinds from one
-rule — **a system prompt plus the stores the member already holds** — where personal, shared, and
-domain personas differ in what their prompt is for, not in what they may read. It owns the
-per-persona write tagging that makes attribution and promotion candidacy work. A persona is never
-a separate agent with private memory of its own, and holds no conversational state across the
-members who address it.
-
-**Candidate (provisional).** Frontmatter-`type` view construction over the connector's bundles;
-a promote/demote condenser for consolidation; Honcho-style user modeling as an option for
-quality.
-
-**Satisfies.** [SPEC §4.1](docs/SPEC.md#41-write-policy-reconciled),
-[§5](docs/SPEC.md#5-personas),
-[§11.4](docs/SPEC.md#11-open-risks--honest-notes).
-
-**Not its job.** Enforcing who may see a store — that is the connector's fail-closed boundary
-between people. A persona directs attention within what the member already holds; it never
-extends access, and its tags are provenance rather than permissions.
-
-## Isolation granularity
-
-The unit of isolation is itself a design choice. There are two, and the difference between them
-is whether a model runs inside the boundary.
-
-**Isolated tool invocation** — no model inside. A sandbox starts, runs one call, returns a
-projected result, and dies. Deterministic, cheap enough to use per call, and the provenance
-label attaches to the returned value at the boundary.
-
-**Isolated sub-agent** — a model inside. It reasons over content and may iterate. Needed only
-when untrusted content must be *interpreted* to produce the answer: "which of these three pages
-answers my question" cannot be a deterministic projection.
-
-The rule that follows: **deterministic projection → isolated tool invocation; interpretation
-required → isolated sub-agent with no tool access.** This is the same ladder as the projection
-tiers in [SPEC §6](docs/SPEC.md#6-orchestrator--subagents--security-model), seen from the
-isolation side rather than the context-economy side — one boundary, two motivations.
-
-### Sub-agent boundaries are taint firebreaks
-
-Session-level taint is a ratchet. Read one web page in the main session and, per
-[SPEC §7](docs/SPEC.md#7-trust-flow--trust-flows-down-never-up), nothing in that session may
-write memory again. For an assistant that reads the web constantly, that is a severe utility
-tax paid on the first fetch of the day.
-
-Run the read inside a sub-agent instead and the *sub-agent's* session takes the taint. The
-parent receives a labeled value rather than a poisoned session — value-level precision using
-only session-level machinery, with no CaMeL interpreter required.
-
-This holds only while the return channel stays narrow and the parent treats the result as an
-opaque value. A sub-agent that returns free text which the parent's model then reads has moved
-the taint, not bounded it: the parent is injection-influenced whatever the label says. So the
-firebreak reduces the ratchet from session-wide and permanent to per-value and trackable — a
-large win, but not a substitute for value discipline
-(→ [SPEC §11.1](docs/SPEC.md#11-open-risks--honest-notes)).
-
-### One profile, three instantiations
-
-Both granularities are the same machinery with different fields set:
-
-| Profile | Model inside? | Tools | Sees | Returns |
-|---|---|---|---|---|
-| Tool-runner | no | one, fixed | its own arguments | projected value |
-| Quarantined processor | yes | none | unblessed content | labeled value |
-| Privileged planner | yes | many, via catalog | blessed input only | a plan |
-
-The runtime, the spawn path, and the reference monitor are shared; a profile is data, not code.
-This is why supporting both granularities costs roughly one system rather than two — and why the
-catalog stays small enough to actually review.
-
-## What is a prompt, not a component
-
-The point of keeping the component list at six is that this list can grow freely. Adding a person
-to the household, or a new shared persona, is configuration and prose — not a new subsystem:
-
-| Behavior | Lives as | Enforced by |
+| Component | Responsibility | Candidate (provisional) |
 |---|---|---|
-| A new household member's persona | Prompt; access follows their verified identity | Memory connector's fail-closed boundary between people; group claims decide what they hold |
-| A new shared persona (home manager, meal planner, trip planner) | Prompt directed at household concerns | Same boundary — it runs as the member addressing it, so it can reach nothing they cannot |
-| Domain advisors (medical, financial, life) | Prompt giving the conversation a direction | Nothing needs to — they read what the member holds; the identity boundary is the only gate |
-| The security constitution | Plain English, compiled | Agent isolation's reference monitor, at tool-call boundaries |
-| "This looks worth promoting to the household space" | Prompt-driven suggestion | Memory manager proposes; a human approves; the connector writes |
-| Tone, voice, house style | Prompt | Nothing — and nothing needs to |
-| "Don't do anything risky" | **Not a prompt.** | Agent isolation + tool execution isolation. Prompts are never the enforcement point. |
+| **User interface** | Surfaces — web, phone, terminal — and the point where a person becomes a verified identity. Hands the session an identity claim and the datastores it holds. | OIDC against any provider |
+| **Memory connector** | Read and write access to datastores. Fail-closed on membership: a store you are not in is unreachable, not filtered. Every write is a git commit. | OKF bundles (markdown + YAML frontmatter), git, QMD retrieval |
+| **Memory manager** | Keeps memory good over years: what to keep, dedup, contradictions, staleness. Proposes writes into shared datastores; never performs them. Owns persona tagging. | Condenser over the bundles |
+| **Inference engine** | Model access behind one interface, so which model answers is a routing decision. | LiteLLM; cloud primary, local when available |
+| **Tool execution isolation** | Where tool calls run and what they may touch. Guarantees: sandboxed filesystem and network, secrets never in an agent's context or environment, results projected before they reach a model. | Containers + NetworkPolicy; MCP as the tool standard |
+| **Agent isolation** | Which subagents may be spawned, and tracking whether data came from a person or from the web. Untrusted content cannot reach a write or an external action without a human. | Compiled policy; CaMeL-style planner/quarantine split |
+
+The last two are the reason it is safe to let this thing read the web and touch real services.
+They are deliberately absent from the diagram: they shape what happens inside a request, not what
+hearthai *is*.
 
 ## Invariants
 
-These hold regardless of how any component is implemented. A change that breaks one is a change
-to the architecture, not to a component.
+1. **A private datastore is never shareable.** No invitation, no admin, no operator.
+2. **Identity is a verified claim, never text.** Nothing said in chat can change who you are.
+3. **Datastore access fails closed.** Unreachable, not filtered.
+4. **Writes into a shared datastore are always human-approved.** The agent proposes; a person
+   decides.
+5. **A persona never changes access.** It directs attention within what the user already holds.
+6. **Secrets never enter an agent's context or environment.** Redaction at the display layer is
+   not isolation.
+7. **Enforcement is runtime, not prompt-level pleading.**
 
-1. **Identity is a verified claim, never text.** No path exists by which chat content sets who
-   the user is.
-2. **Memory spaces fail closed.** Unreachable, not filtered.
-3. **Unblessed data cannot reach a memory write or an external action without a human.**
-4. **The household store has no autonomous writer.** Every write lands in a person's own store;
-   the only path into shared memory is human-approved promotion. The entity may suggest; it may
-   not promote.
-5. **Secrets never enter a subagent's context or environment.** Redaction at the display layer
-   is not isolation.
-6. **Raw tool payloads never enter inference context.** Project before inject.
-7. **Enforcement is runtime, never prompt-level pleading.** Namespaces, containers, and network
-   policy on hardware we control.
-8. **Session state is keyed by the member, never by the persona.** A persona is a prompt applied
-   to one member's session; access derives from that member's identity, and no persona extends
-   or restricts it.
+## Status and build order
 
-During phase 1 two of these are temporarily bent by scaffolding, with stated exit conditions —
-see [Build order](#scaffolding-with-exit-conditions). No others are negotiable.
+MVP: OIDC login, one private datastore per user, user-created shared datastores with invitations,
+OKF bundles under git with QMD retrieval, autonomous private writes with approved shared writes,
+persona prompts, and pluggable inference. Deferred: consolidation and compaction behavior,
+sensitivity-based inference routing, vector or graph retrieval, and any allowlist for external
+writes — those stay human-approved.
 
-## MVP scope
+**The memory layer gets built first**, standalone, as a plugin for an agent that already exists.
+It has the longest feedback loop — whether dedup and staleness handling actually work takes months
+of real writes to learn, not a week of synthetic testing — and it is the differentiated part,
+since orchestrators are commodity and human-legible multi-user memory is not. Exposing it as a
+serializable interface to a foreign host also proves the component contract instead of asserting
+it. Identity, datastore, and write-provenance are parameters on that interface from the first
+commit, even while the interim host can only supply one of each.
 
-Per component — condensed from [SPEC §9](docs/SPEC.md#9-mvp-scope).
-
-| Component | In MVP | Deferred |
-|---|---|---|
-| Inference engine | Pluggable model access, cloud-primary; laptop endpoint when present | Sensitivity-based tiering (must stay expressible) |
-| User interface | Cluster-hosted web chat behind Authentik OIDC; terminal-as-execution-endpoint session model | Additional surfaces; household onboarding UX |
-| Tool execution isolation | Sandboxed tool-runners, result projection, credential broker | External-write allowlists (every external write is human-approved in MVP) |
-| Agent isolation | Predefined profile catalog, read-only web subagent, blessed/unblessed taint tracking | Orchestrator-proposed new profiles |
-| Memory connector | Two OKF bundles — one personal space plus the household shared space — QMD retrieval, git versioning | Spouse, kid-safe, and per-kid spaces; vector/graph retrieval |
-| Memory manager | One personal persona set plus domain personas, one shared persona, per-persona write tagging, autonomous writes to the member's own store, human-gated promotion | Additional people's personas; consolidation/compaction; promotion-friction UX |
-
-## Build order
-
-**The memory layer is built first and standalone**, as a plugin consumed by an existing agent,
-while the other five components are built the way we want them. The orchestrator is the last
-thing to arrive, not the first.
-
-Why this order:
-
-- **Memory has the longest feedback loop.** Whether consolidation, dedup, and staleness handling
-  actually work (→ [SPEC §11.4](docs/SPEC.md#11-open-risks--honest-notes)) cannot be learned
-  from a week of synthetic testing; it takes real writes over real months. Building it first
-  starts that clock immediately.
-- **It is the differentiated part.** Orchestrators are commodity — Hermes, OpenClaw and others
-  all have one worth borrowing. Household-multi-tenant, human-legible, git-versioned memory is
-  the thing that does not exist yet.
-- **It is the least coupled component.** The connector and manager need an identity and a space.
-  They do not need the isolation runtime to exist.
-- **A plugin boundary proves the contract.** Exposed as a serializable interface to a foreign
-  host, the connector cannot quietly grow in-process coupling to our own orchestrator. The
-  six-replaceable-components stance stops being an assertion and becomes a tested fact.
-
-### What the interface carries from day one
-
-These are arguments on the API from the first commit, even where the interim host cannot supply
-them meaningfully:
-
-- **Identity and space** — parameters, never configuration, even while there is exactly one of
-  each.
-- **Provenance on every write** — blessed or unblessed, supplied by the caller.
-- **Promotion as an operation distinct from a write** — one that returns *proposed*, never
-  *done*.
-
-An interface that gains these later has to gain them in every caller at once. An interface born
-with them just accumulates callers that fill them in properly.
-
-### Scaffolding, with exit conditions
-
-Phase 1 runs inside a foreign host that has no OIDC and no concept of taint. Two invariants are
-bent, deliberately and temporarily:
-
-| Invariant bent | Interim posture | Exit condition |
-|---|---|---|
-| #1 — identity is a verified claim | A single configured identity, asserted by the host | Our own user interface, with Authentik in front |
-| #3 — unblessed data cannot reach a write without a human | The host supplies `blessed` for all writes | Our own agent isolation, with real provenance tracking |
-
-The interim posture on #3 is narrowly legitimate rather than a straight cheat:
-[SPEC §7](docs/SPEC.md#7-trust-flow--trust-flows-down-never-up) already holds that terminal
-presence is the approval, so a terminal-hosted session driven by one adult *is* blessed input by
-the spec's own rule. That justification does not extend to phone chat, to unattended runs, or to
-a second person — which is precisely when the exit condition binds.
-
-⚠ The failure mode to watch is scaffolding that works becoming the design. These exceptions are
-only safe for as long as they stay written down next to the invariants they bend.
-
-## Open questions
-
-Each of these is unresolved and known — detail in
-[SPEC §11](docs/SPEC.md#11-open-risks--honest-notes).
-
-- **Taint propagation is the linchpin.** If provenance does not survive summarization, the whole
-  defense is theater. Accepted cost: constrained dynamic tool calling in tainted sessions.
-- **Memory quality has no owner yet.** Autonomous writes remove the bottleneck but not the
-  entropy; the memory manager's consolidation behavior is unproven and unbuilt.
-- **Same-entity-across-modalities is the real engineering.** Shared session and state
-  infrastructure from day one, more than any model-side work.
-- **Parent-of must be distinguishable from operator-of** in the enforcement layer, or spousal
-  privacy is only conventional. Guardian visibility is a family-policy decision with a technical
-  consequence, and it should sunset as children age.
-- **What licenses the entity to speak first?** Proactive initiation — and what it may observe in
-  order to have something to say — is unaddressed in MVP.
+Two things are unresolved. **Memory quality has no owner yet** — autonomous writes remove the
+bottleneck but not the entropy. And **nothing licenses the agent to speak first**; proactivity,
+and what it may observe in order to have something to say, is unaddressed.
 
 ## Prior art
 
-Steal from, do not adopt as substrate. None of these provides the load-bearing requirement:
-identity-mapped household multi-tenancy. Full detail in
-[SPEC §10](docs/SPEC.md#10-prior-art--positioning) and
-[§12](docs/SPEC.md#12-references).
+Detail and links in [`docs/SPEC.md`](docs/SPEC.md#12-references).
 
-| Source | Contributes | To |
-|---|---|---|
-| [IronCurtain](https://github.com/provos/ironcurtain) | Constitution-compiled policy; blessed-input trust; credentials never enter the container | Agent isolation, tool execution isolation |
-| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | One agent / one memory across surfaces; surface gateway; SSH sandbox backend | User interface |
-| [CaMeL](https://arxiv.org/abs/2503.18813) | Privileged planner / quarantined processor / capability-carrying values / deterministic enforcement | Agent isolation |
-| [OpenClaw](https://github.com/openclaw/openclaw) | Session-level taint tracking, specified as an RFC | Agent isolation |
-| ZeroClaw | Encrypted secrets, allowlists and scoped filesystem by default; swappable providers | Tool execution isolation, inference engine |
-| [OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf) | Markdown + YAML frontmatter bundles, git-native and `cat`-able | Memory connector |
-| QMD | Local-first hybrid retrieval over markdown | Memory connector |
-| Letta / MemGPT | Explicit, editable memory blocks — the inspectability argument | Memory connector |
-| Zep (Graphiti), Mem0 | Temporal-graph and dual-store approaches — the upgrade path if files hit their ceiling | Memory connector |
-| Honcho | Dialectic user modeling | Memory manager |
-| OpenAGI | Directional Adaptive Scrutiny (act/ask/watch/ignore/delegate); promote/demote condenser | Memory manager, proactivity question |
+- **[IronCurtain](https://github.com/provos/ironcurtain)** — constitution-compiled policy;
+  credentials that never enter the container.
+- **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** — one agent and one memory
+  across many surfaces.
+- **[CaMeL](https://arxiv.org/abs/2503.18813)** — privileged planner, quarantined processor,
+  deterministic enforcement at tool-call boundaries.
+- **[OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf)** — markdown +
+  YAML frontmatter bundles, git-native and readable with `cat`.
+- **QMD** — local-first hybrid retrieval over markdown.
+- **Letta / MemGPT** — explicit, editable memory blocks; the inspectability argument.
+- **Zep (Graphiti), Mem0** — the upgrade path if file-based retrieval hits its ceiling.
+- **ZeroClaw** — encrypted secrets and scoped filesystem access by default.
+- **Honcho**, **OpenAGI** — candidate mechanisms for the memory-quality problem.
+
+None of them provide the load-bearing requirement: per-user private memory with user-created
+sharing on top.

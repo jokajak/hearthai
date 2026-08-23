@@ -21,23 +21,29 @@ It is one entity across modalities: work done at the terminal Tuesday is known t
 
 ## 3. Identity & Access
 
-- **Authentik (already deployed) fronts everything via OIDC.** Group claims (`adults`, `kids`, per-user) map to memory spaces.
-- Identity arrives at the orchestrator as a **verified claim, never a chat-asserted fact**. Kid isolation is enforced at the API layer by group membership, not by prompt.
+> **Revised after the interview** (see the [README](../README.md#users-and-datastores)). This section originally specified Authentik in particular, with group claims (`adults`, `kids`, per-user) mapping people onto pre-declared memory spaces. Two corrections: hearthai supports **OIDC providers generally**, and access derives from **datastore membership** rather than from group claims. There is no group-to-space mapping to maintain.
+
+- **Any OIDC provider fronts everything.** Authentik is what Josh already runs, not a requirement of the design.
+- Identity arrives as a **verified claim, never a chat-asserted fact**.
+- Access is decided by membership: your own private datastore, plus each shared datastore you have been invited into. Enforced at the API layer, never by prompt.
 
 ## 4. Memory Architecture
 
-**Model: space-based partitioning (fail-closed), file-based storage, git-versioned.**
+**Model: per-user private datastores plus user-created shared datastores (fail-closed), file-based storage, git-versioned.**
+
+> **Revised after the interview.** This section originally described fixed "spaces" — one per person plus a household store — provisioned by the operator. Replaced by datastores users create and share themselves. A household store is not a built-in concept; it is a datastore someone made and invited their family into, and the kid-safe and per-kid stores below are ordinary datastores rather than special cases.
 
 - **Format: OKF bundles** — markdown + YAML frontmatter, self-describing, `cat`-able, diffable. One bundle per space.
 - **Retrieval: QMD** over the bundles. No vector/graph database in MVP. ⏸ Add real retrieval infrastructure only when retrieval demonstrably misses; Neo4j was considered and could not be justified by a concrete query.
-- **Spaces (MVP): Josh's personal store + household shared store.** Spouse's store, kid-safe store, and per-kid stores follow the same pattern post-MVP. ⏸
-- A kid's agent reads **only** the kid-safe store — no query-time filtering of richer stores. Sparse and stale shared context is accepted; promotion-friction reduction is future work. ⏸
+- **Every user has exactly one private datastore, created with the account, that can never be shared** — no invitation, no admin override, no operator read. Unshareability is a property of the store, not a permission that could later be granted.
+- **Shared datastores are created by users, who invite other users in.** Membership is the whole access rule. One mechanism serves a household store, a couple's finances, a project with a colleague, or a trip with friends.
+- A session reads the user's private datastore plus every datastore they are a member of — no query-time filtering of stores they do not hold, because those are unreachable. Sparse and stale shared context is accepted; reducing sharing friction is future work. ⏸
 - `log.md` per bundle provides the audit trail; git history provides revert.
 
 ### 4.1 Write policy (reconciled)
 
-1. **Own partition: the agent writes autonomously.** Inspectability is achieved through git post-hoc review and revert, not pre-approval queues.
-2. **Cross-space promotion (e.g., personal → household): human-approved, always.** The agent may suggest promotion; it may never perform it.
+1. **Own private datastore: the agent writes autonomously.** Inspectability is achieved through git post-hoc review and revert, not pre-approval queues.
+2. **Any write into a shared datastore is human-approved, always.** The agent may propose; it may never perform one. This generalizes what was originally written as personal → household promotion: the rule is about anything landing where other people can read it, whichever datastore that is.
 3. **Web-tainted sessions cannot write memory without human approval** (see §7).
 4. Explicit "remember this" from a user is honored as a normal own-partition write.
 
@@ -45,15 +51,14 @@ It is one entity across modalities: work done at the terminal Tuesday is known t
 
 **A persona = system prompt + the data stores available for context. Not a separate agent, not private memory.** Same brain, different direction.
 
-> **Revised after the interview** (see the [README](../README.md#a-persona-is-a-system-prompt-plus-the-stores-you-already-hold)). This section originally read "prompt + scoped memory view … different slice of the graph," with per-persona read partitioning. Two corrections: personas come in a **personal** and a **shared** kind, and a persona **directs** a conversation rather than restricting what it may read. The original wording is preserved in git history.
+> **Revised twice after the interview** (see the [README](../README.md#personas)). Originally "prompt + scoped memory view … different slice of the graph," with per-persona read partitioning. First correction: a persona **directs** a conversation rather than restricting what it may read. Second, once memory became user-created datastores: the personal/shared distinction **dissolved** — there is one kind of persona, a prompt, and it runs with the addressing user's access. Original wording is preserved in git history.
 
-- **Personal personas** serve one person; **shared personas** (home manager, household chief-of-staff) are addressable by every member and directed at household-level concerns. Both run as the member addressing them.
-- Domain roster within a person's personas: medical advisor, financial advisor, life advisor.
+- **A persona is a system prompt and nothing more.** Some prompts are oriented at shared concerns (a home manager) and some at a person's own (a medical, financial, or life advisor); that is a fact about the prompt, not a different kind of object.
 - The orchestrator knows the roster and routes conversations to the appropriate persona.
-- **A persona reads every store the member holds** — their own, plus the household store. Read-gating by persona would only degrade answers: it is the same human, in the same session, with the same rights. The sole access boundary is *between people*, enforced on verified identity.
-- **Per-persona tagging within the person's bundle** (frontmatter): every write lands in the session member's own store carrying the tag of the persona that produced it. Tags are provenance — attribution, promotion candidacy, revert granularity, relevance ordering — and are never consulted for access.
-- **The household store has no autonomous writer.** The only path into it is human-approved promotion (§4.1.2), whichever persona was being addressed.
-- ⚠ **Parental visibility rule (not admin visibility):** visibility follows the guardianship relationship, not system operation. Parents have insight into their children's persona conversations, including medical. **Adults' partitions are private to each adult** — operating the infrastructure grants no read access to a spouse's space. This is a deliberate family-policy decision, accepted with the stated commitment to treat that access appropriately; it should be disclosed to household users rather than silent, and it naturally sunsets as children reach adulthood.
+- **A persona reads exactly what its user holds** — their private datastore plus every datastore they are a member of. Read-gating by persona would only degrade answers: it is the same human, in the same session, with the same rights. The sole access boundary is *between users*, enforced on verified identity and datastore membership.
+- **Per-persona tagging** (frontmatter): every write carries the tag of the persona that produced it. Tags are provenance — attribution, sharing candidacy, revert granularity, relevance ordering — and are never consulted for access.
+- **Writes land in the user's own private datastore.** Anything destined for a shared datastore goes through human approval (§4.1.2), whichever persona was addressed.
+- ⚠ **Parental visibility rule — now in tension with the datastore model, see §11.7.** Originally: visibility follows the guardianship relationship, not system operation; parents have insight into their children's persona conversations, and adults' stores are private from each other. The first half no longer has a mechanism, because a private datastore can never be shared with anyone, including a parent. The second half holds by construction.
 
 ## 6. Orchestrator & Subagents — Security Model
 
@@ -120,7 +125,8 @@ Motivating threat: **prompt injection from arbitrary web content.**
 4. **"Background getting smarter" is unproven.** Autonomous writes remove the approval bottleneck, but memory *quality* (dedup, contradiction resolution, staleness) has no owner yet. Expect to need a compaction/consolidation behavior; ⏸ design later, but budget for it.
 5. **Same-entity-across-modalities** implies shared session/state infrastructure on the cluster from day one — this is the actual hard engineering, more than any AI piece.
 6. **Credential isolation is a hard requirement, not a nicety.** Secrets (API keys, OAuth tokens, service credentials) never enter any subagent's context or environment — display-layer redaction is not isolation (a documented failure mode in contemporary agents). The runtime brokers access: subagents receive scoped, revocable, short-lived tokens minted per-spawn, and the broker holds the real credentials outside every container boundary. Model: IronCurtain's credentials-never-enter-the-container OAuth handling; ZeroClaw's encrypted-secrets-and-allowlists-by-default posture.
-7. ⏸ **When should the orchestrator initiate rather than respond?** The spec defines what happens when a user speaks, but not what licenses the entity to speak first — nor what it is allowed to observe in order to have something to say. Unaddressed in MVP; see the OpenAGI reference in §12 for one worked framing.
+7. ⏸ **Guardian visibility has no mechanism in the datastore model, deliberately.** §5's parental-insight rule assumed operator-provisioned spaces. With per-user private datastores that can never be shared, a child's private store is private from their parents too. Either that is the right answer and §5's visibility rule is dropped, or guardianship needs an explicit exception — which would be the only override to the never-shareable rule and would weaken it for everyone. Undecided; decide before onboarding a second person.
+8. ⏸ **When should the orchestrator initiate rather than respond?** The spec defines what happens when a user speaks, but not what licenses the entity to speak first — nor what it is allowed to observe in order to have something to say. Unaddressed in MVP; see the OpenAGI reference in §12 for one worked framing.
 
 ## 12. References
 
