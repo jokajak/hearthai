@@ -143,15 +143,38 @@ The honest list. These are not edge cases; several go to whether the idea works 
   household-shaped multi-user memory is the part that seems missing; that judgement is worth
   rechecking before writing much code.
 
-## Where to start
+## Where it starts — what is in this repo
 
-The memory layer, standalone, plugged into an agent that already exists — before there is an
-orchestrator, a gateway, or a UI.
+The shape above is where this is going. What exists now is the smallest useful piece of it:
+**shared memory, as a skill plus a service.**
 
-It has the longest feedback loop of anything here, so its clock should start first. It is also the
-part that seems genuinely missing from the ecosystem, where orchestrators are not. And building it
-against a foreign host keeps it honest about being a separable component rather than something
-fused to the rest.
+The bet is that the household layer does not need its own agent. Run an existing one per person —
+[Hermes](https://github.com/NousResearch/hermes-agent) supports a profile per person, each with
+isolated memory, sessions, skills, and credentials — and everyone's private memory is private by
+construction, because it lives in a separate process on a separate home directory. What is missing
+between those agents is a way to share, and that is a skill.
+
+| | |
+|---|---|
+| [`skills/shared-memory/`](skills/shared-memory/) | An [Agent Skill](https://agentskills.io): when to share, when to look, and a CLI that talks to the service. Works in any skills-compatible agent, so this is not a bet on one runtime. |
+| [`service/`](service/) | Stores that several agents read and write. Markdown with frontmatter, committed to git on every write. Python, standard library only. |
+
+A store is addressed by a secret token generated at creation. The service keeps only
+`sha256(token)` and finds a store by hashing what the caller presents, so the token never lands on
+disk. That is the whole of access control for now: **a bearer capability, unrevocable, with
+self-asserted attribution.** Fine among people who already trust each other. Not authentication,
+and documented as such in [`service/README.md`](service/README.md).
+
+This deliberately starts with the memory layer rather than an orchestrator. It has the longest
+feedback loop of anything here, so its clock should start first; it is the part that seems
+genuinely missing from the ecosystem, where orchestrators are not; and building it against a
+foreign host keeps it honest about being separable rather than fused to a system that does not
+exist yet.
+
+What it does not yet do: shared memory is not ambient. A skill is consulted when its description
+matches the conversation, so an agent only knows what it thought to look up. Making shared context
+arrive without being asked for — a session-start hook, or a sync into local memory — is the next
+question, and the sync option trades away retraction.
 
 ## Prior art
 

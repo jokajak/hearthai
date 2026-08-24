@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""CLI for the hearthai shared memory service.
+
+Reads HEARTHMEM_URL (default http://127.0.0.1:8765) and HEARTHMEM_AUTHOR
+(default $USER) from the environment. Tokens are named in a local address book
+at ~/.hearthmem/stores.json so you refer to stores by name, not by secret.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+BASE = os.environ.get("HEARTHMEM_URL", "http://127.0.0.1:8765").rstrip("/")
+AUTHOR = os.environ.get("HEARTHMEM_AUTHOR") or os.environ.get("USER") or "unknown"
+BOOK = Path(os.environ.get("HEARTHMEM_HOME", "~/.hearthmem")).expanduser() / "stores.json"
+
+
+def die(message: str) -> None:
+    print(f"error: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def load_book() -> dict:
+    if not BOOK.exists():
+        return {}
+    try:
+        return json.loads(BOOK.read_text())
+    except json.JSONDecodeError:
+        die(f"{BOOK} is not valid JSON; fix or remove it")
+
+
+def save_book(book: dict) -> None:
+    BOOK.parent.mkdir(parents=True, exist_ok=True)
+    BOOK.write_text(json.dumps(book, indent=2, sort_keys=True) + "\n")
+    BOOK.chmod(0o600)
+
+
+def resolve(name_or_token: str) -> str:
+    book = load_book()
+    if name_or_token in book:
+        return book[name_or_token]["token"]
+    return name_or_token
+
+
+def call(method: str, path: str, payload: dict | None = None) -> dict:
+    request = urllib.request.Request(
+        BASE + path,
+        method=method,
+        data=json.dumps(payload).encode() if payload is not None else None,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        try:
+            die(json.loads(exc.read()).get("error", str(exc)))
+        except json.JSONDecodeError:
+            die(f"HTTP {exc.code}")
+    except urllib.error.URLError as exc:
+        die(f"cannot reach the memory service at {BASE}: {exc.reason}")
+
+
+def cmd_create(args) -> None:
+    result = call("POST", "/stores", {"purpose": args.purpose, "author": AUTHOR})
+    book = load_book()
+    book[args.name] = {"token": result["token"], "purpose": result["purpose"]}
+    save_book(book)
+    print(f"created '{args.name}' — {result['purpose']}")
+    print(f"\nshare this token with people who should have access:\n\n  {result['token']}\n")
+    print("anyone holding it has full access, and it cannot be revoked.")
+
+
+def cmd_add_shared(args) -> None:
+    book = load_book()
+    if args.name in book and book[args.name]["token"] != args.token:
+        die(f"'{args.name}' already names a different store; pick another name")
+    info = call("GET", "/stores/" + urllib.parse.quote(args.token, safe=""))
+    book[args.name] = {"token": args.token, "purpose": info.get("purpose", "")}
+    save_book(book)
+    print(f"added '{args.name}' — {info.get('purpose','')} ({info.get('entry_count',0)} entries)")
+
+
+def cmd_list(args) -> None:
+    book = load_book()
+    if not book:
+        print("no stores yet. create one, or add one you were given a token for.")
+        return
+    for name, meta in sorted(book.items()):
+        print(f"{name:<20} {meta.get('purpose','')}")
+
+
+def cmd_share(args) -> None:
+    token = resolve(args.name)
+    result = call(
+        "POST",
+        f"/stores/{urllib.parse.quote(token, safe='')}/entries",
+        {"content": args.content, "author": AUTHOR, "tags": args.tag or []},
+    )
+    if result.get("duplicate"):
+        print(f"already in '{args.name}' (shared by {result['author']} on {result['created_at'][:10]})")
+    else:
+        print(f"shared to '{args.name}' as {result['id']}")
+
+
+def cmd_recall(args) -> None:
+    token = resolve(args.name)
+    path = f"/stores/{urllib.parse.quote(token, safe='')}/entries"
+    query = urllib.parse.urlencode({"q": args.query or "", "limit": args.limit})
+    entries = call("GET", f"{path}?{query}").get("entries", [])
+    if not entries:
+        print(f"nothing in '{args.name}' matches that.")
+        return
+    for entry in entries:
+        tags = f" [{', '.join(entry['tags'])}]" if entry.get("tags") else ""
+        print(f"- {entry['content']}")
+        print(f"    — {entry['author']}, {entry['created_at'][:10]}{tags}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="hearthmem", description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("create", help="create a store and print its token")
+    p.add_argument("name")
+    p.add_argument("purpose")
+    p.set_defaults(func=cmd_create)
+
+    p = sub.add_parser("add", help="add a store someone shared with you")
+    p.add_argument("name")
+    p.add_argument("token")
+    p.set_defaults(func=cmd_add_shared)
+
+    p = sub.add_parser("list", help="list stores you can reach")
+    p.set_defaults(func=cmd_list)
+
+    p = sub.add_parser("share", help="put something into a store")
+    p.add_argument("name")
+    p.add_argument("content")
+    p.add_argument("--tag", action="append")
+    p.set_defaults(func=cmd_share)
+
+    p = sub.add_parser("recall", help="search a store")
+    p.add_argument("name")
+    p.add_argument("query", nargs="?", default="")
+    p.add_argument("--limit", type=int, default=10)
+    p.set_defaults(func=cmd_recall)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
