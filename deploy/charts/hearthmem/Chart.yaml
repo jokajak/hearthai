@@ -1,0 +1,12 @@
+apiVersion: v2
+name: hearthmem
+description: Shared memory service for hearthai — stores that several people's agents read and write
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/jokajak/hearthai
+sources:
+  - https://github.com/jokajak/hearthai
+keywords:
+  - agent
+  - memory

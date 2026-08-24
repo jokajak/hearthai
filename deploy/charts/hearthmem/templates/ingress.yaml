@@ -1,0 +1,32 @@
+{{- if .Values.ingress.enabled }}
+{{- if not .Values.ingress.tls.enabled }}
+{{- fail "ingress.tls.enabled=false would put an unrevocable bearer token on the network in clear text. Set ingress.tls.enabled=true, or reach the service from inside the cluster instead." }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hearthmem.fullname" . }}
+  labels:
+    {{- include "hearthmem.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hearthmem.fullname" . }}
+                port:
+                  name: http
+{{- end }}

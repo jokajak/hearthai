@@ -1,0 +1,21 @@
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hearthmem.claimName" . }}
+  labels:
+    {{- include "hearthmem.labels" . | nindent 4 }}
+  annotations:
+    # Keep the memory if the release is uninstalled. Deleting it is a manual act.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    # ReadWriteOnce is load-bearing: exactly one pod may mount this.
+    - ReadWriteOnce
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}

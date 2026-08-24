@@ -20,13 +20,24 @@ read from the environment too.
 ## On Kubernetes
 
 Agents run per person and reach one shared service, so it is meant to be deployed on a cluster.
-Manifests are in [`deploy/kubernetes/`](../deploy/kubernetes/):
+The chart is published to GHCR on each tagged release:
 
 ```sh
-kubectl apply -k deploy/kubernetes/
+helm install hearthmem oci://ghcr.io/jokajak/charts/hearthmem --version 0.1.0
 ```
 
-Two constraints are load-bearing rather than conventional:
+Or from a checkout, [`deploy/charts/hearthmem/`](../deploy/charts/hearthmem/):
+
+```sh
+helm install hearthmem deploy/charts/hearthmem
+```
+
+Worth setting: `persistence.size`, `persistence.storageClass`, and — only if agents run
+outside the cluster — `ingress.enabled=true` with `ingress.host`. The chart refuses to render
+an ingress with TLS disabled, because an unrevocable bearer token in clear text is not a
+trade-off worth offering.
+
+There is no `replicaCount` value. Two constraints are load-bearing rather than conventional:
 
 - **Exactly one replica, with the `Recreate` strategy.** The store is a git repository on a
   filesystem guarded by a single in-process writer lock. A second pod on the same volume

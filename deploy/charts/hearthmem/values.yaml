@@ -1,0 +1,71 @@
+image:
+  repository: ghcr.io/jokajak/hearthmem
+  # Defaults to .Chart.AppVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+persistence:
+  enabled: true
+  size: 5Gi
+  # Leave null to use the cluster default StorageClass.
+  storageClass: null
+  # Point at a claim you manage yourself instead of letting the chart create one.
+  existingClaim: ""
+
+# Only needed when agents run outside the cluster.
+#
+# The store token is the only credential and it cannot be revoked, so enabling
+# this without TLS puts a permanent bearer token on the network in clear text.
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  host: hearthmem.example.internal
+  tls:
+    enabled: true
+    secretName: hearthmem-tls
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+# The image builds this uid/gid; changing it needs a matching image.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# Long enough for an in-flight git commit to finish and release the writer lock.
+terminationGracePeriodSeconds: 30
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Deliberately absent: replicaCount.
+#
+# The store is a git repository on one volume, guarded by a single in-process
+# writer lock. Two replicas corrupt it. The Deployment is pinned to one with the
+# Recreate strategy so a rolling update never briefly runs two, and that is not
+# offered as a value because there is no correct setting other than 1.

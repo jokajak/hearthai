@@ -5,7 +5,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git \
  && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin hearth
+RUN groupadd --gid 10001 hearth \
+ && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin hearth
 
 WORKDIR /app
 COPY hearthmem/ ./hearthmem/
@@ -22,7 +23,6 @@ RUN git config --system --add safe.directory /data \
 
 USER hearth
 EXPOSE 8765
-VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
   CMD python3 -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8765/health',timeout=2)"

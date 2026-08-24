@@ -1,0 +1,27 @@
+hearthmem is deployed.
+
+Reach it from inside the cluster at:
+
+  http://{{ include "hearthmem.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+
+{{- if .Values.ingress.enabled }}
+
+And from outside at https://{{ .Values.ingress.host }}
+{{- end }}
+
+Point each person's agent at it:
+
+  export HEARTHMEM_URL=http://{{ include "hearthmem.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+  export HEARTHMEM_AUTHOR=<their name>
+
+Then create a store and hand the token to whoever should have access:
+
+  hearthmem create family "Family logistics"
+
+That token is the only credential. Anyone holding it has full read and write
+access, and it cannot be revoked.
+{{- if not .Values.persistence.enabled }}
+
+WARNING: persistence is disabled. Everything shared will be lost when the pod
+restarts.
+{{- end }}

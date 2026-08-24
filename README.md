@@ -158,7 +158,8 @@ between those agents is a way to share, and that is a skill.
 |---|---|
 | [`skills/shared-memory/`](skills/shared-memory/) | An [Agent Skill](https://agentskills.io): when to share, when to look, and a CLI that talks to the service. Works in any skills-compatible agent, so this is not a bet on one runtime. |
 | [`service/`](service/) | Stores that several agents read and write. Markdown with frontmatter, committed to git on every write. Python, standard library only. |
-| [`deploy/kubernetes/`](deploy/kubernetes/) | The service as a cluster workload — one replica, a persistent volume, non-root and read-only rootfs. Agents run per person and reach it over the network, so it has to live somewhere they can all get to. |
+| [`deploy/charts/hearthmem/`](deploy/charts/hearthmem/) | A Helm chart. Agents run per person and reach the service over the network, so it has to live somewhere they can all get to. One replica, a persistent volume, non-root with a read-only root filesystem. |
+| [`.github/workflows/`](.github/workflows/) | Tests on three Pythons, the image built and smoke-tested on every PR, chart rendered and schema-validated. Tagging `v*` publishes a multi-arch image and the chart to GHCR. |
 
 A store is addressed by a secret token generated at creation. The service keeps only
 `sha256(token)` and finds a store by hashing what the caller presents, so the token never lands on
