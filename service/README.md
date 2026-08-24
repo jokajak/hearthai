@@ -13,8 +13,34 @@ committed to git on every write.
 python3 -m hearthmem.server --root ./data --port 8765
 ```
 
-Binds to `127.0.0.1` by default. Put it behind something that terminates TLS before letting
-it off the machine.
+Binds to `127.0.0.1` by default; set `HEARTHMEM_HOST=0.0.0.0` to accept connections from
+elsewhere, which is what the container image does. `HEARTHMEM_ROOT` and `HEARTHMEM_PORT` are
+read from the environment too.
+
+## On Kubernetes
+
+Agents run per person and reach one shared service, so it is meant to be deployed on a cluster.
+Manifests are in [`deploy/kubernetes/`](../deploy/kubernetes/):
+
+```sh
+kubectl apply -k deploy/kubernetes/
+```
+
+Two constraints are load-bearing rather than conventional:
+
+- **Exactly one replica, with the `Recreate` strategy.** The store is a git repository on a
+  filesystem guarded by a single in-process writer lock. A second pod on the same volume
+  corrupts it, and a rolling update briefly runs two — which is why the strategy is not the
+  default.
+- **`ReadWriteOnce`** on the claim, for the same reason.
+
+The pod runs as uid 10001, non-root, with a read-only root filesystem and all capabilities
+dropped. Only `/data` and `/tmp` are writable. Git works under those conditions because the
+store sets repository-local identity and never needs a writable `HOME`.
+
+`terminationGracePeriodSeconds: 30` gives an in-flight commit time to finish. The service
+handles `SIGTERM` by draining, so pods stop in well under a second rather than being killed
+mid-write.
 
 ## Access
 
@@ -29,8 +55,13 @@ This is a bearer capability, and it is the whole of access control:
 - attribution is self-asserted — an entry says who wrote it because the caller said so
 
 Reasonable among people who already trust each other, which is who this is for. It is not
-a substitute for authentication, and it should not be exposed to a network where that
-distinction matters.
+a substitute for authentication.
+
+**Once this is on a network rather than a loopback interface, that matters more.** Send the
+token in the `X-Store-Token` header, not the URL path — paths are recorded by every proxy and
+ingress controller in between, and a logged token is a permanent one. The CLI already does
+this; the path form exists for debugging by hand. Terminate TLS in front of the service, or
+the token crosses the network in clear text.
 
 ## API
 

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hearthmem-data
+  labels:
+    app.kubernetes.io/name: hearthmem
+spec:
+  accessModes:
+    # ReadWriteOnce is correct and load-bearing: the store is a git repository
+    # guarded by one in-process writer lock, so exactly one pod may mount it.
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

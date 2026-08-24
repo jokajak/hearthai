@@ -94,3 +94,42 @@ def test_token_via_header(base):
     )
     with urllib.request.urlopen(request, timeout=10) as response:
         assert json.loads(response.read())["purpose"] == "Family"
+
+
+def test_sigterm_drains_instead_of_hanging(tmp_path):
+    """Kubernetes sends SIGTERM before SIGKILL.
+
+    shutdown() blocks until serve_forever() returns, so calling it directly from
+    the signal handler deadlocks the main thread until the grace period expires —
+    which risks SIGKILL landing mid-commit. Regression test for that.
+    """
+    import os
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    env = {**os.environ, "HEARTHMEM_ROOT": str(tmp_path / "data"),
+           "HEARTHMEM_PORT": "8813", "HEARTHMEM_HOST": "127.0.0.1"}
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "hearthmem.server"],
+        cwd=str(Path(__file__).resolve().parents[1]),
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    try:
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            try:
+                urllib.request.urlopen("http://127.0.0.1:8813/health", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.1)
+        else:
+            pytest.fail("service never became healthy")
+
+        proc.send_signal(signal.SIGTERM)
+        assert proc.wait(timeout=10) == 0, "should exit cleanly on SIGTERM"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)

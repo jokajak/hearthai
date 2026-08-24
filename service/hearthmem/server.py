@@ -1,7 +1,13 @@
 """HTTP front end for the shared memory store.
 
-Bind to localhost. The token is the only credential, so anything that can reach
-this port can read any store whose token it holds.
+The token is the only credential, so anything that can reach this port can read
+any store whose token it holds. On a shared network that means TLS in front and
+the token in the ``X-Store-Token`` header rather than the URL path, since paths
+end up in proxy access logs.
+
+Run exactly one replica. The store is a git repository on a filesystem with a
+single in-process writer lock; a second replica on the same volume would corrupt
+it.
 """
 
 from __future__ import annotations
@@ -9,6 +15,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -116,16 +124,35 @@ def build_server(root: Path, host: str = "127.0.0.1", port: int = 8765) -> Threa
 def main() -> None:
     parser = argparse.ArgumentParser(description="hearthai shared memory service")
     parser.add_argument("--root", default=os.environ.get("HEARTHMEM_ROOT", "./data"))
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--host", default=os.environ.get("HEARTHMEM_HOST", "127.0.0.1"))
+    parser.add_argument(
+        "--port", type=int, default=int(os.environ.get("HEARTHMEM_PORT", "8765"))
+    )
     args = parser.parse_args()
 
     server = build_server(Path(args.root).expanduser(), args.host, args.port)
-    print(f"hearthmem serving {Path(args.root).resolve()} on http://{args.host}:{args.port}")
+    print(
+        f"hearthmem serving {Path(args.root).resolve()} on http://{args.host}:{args.port}",
+        flush=True,
+    )
+
+    def stop(signum, _frame):
+        # Kubernetes sends SIGTERM before SIGKILL. Stop accepting, let in-flight
+        # writes finish and release the lock, so the git repo is never left mid-commit.
+        #
+        # shutdown() blocks until serve_forever() returns, and the handler runs on
+        # the thread that is inside serve_forever() — calling it here deadlocks
+        # until SIGKILL. Hand it to another thread instead.
+        print(f"signal {signum}: draining", flush=True)
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
     try:
         server.serve_forever()
-    except KeyboardInterrupt:
-        server.shutdown()
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

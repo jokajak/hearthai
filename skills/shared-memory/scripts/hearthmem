@@ -49,12 +49,16 @@ def resolve(name_or_token: str) -> str:
     return name_or_token
 
 
-def call(method: str, path: str, payload: dict | None = None) -> dict:
+def call(method: str, path: str, payload: dict | None = None, token: str | None = None) -> dict:
+    headers = {"Content-Type": "application/json"}
+    if token:
+        # Never in the URL: paths are logged by every proxy in between.
+        headers["X-Store-Token"] = token
     request = urllib.request.Request(
         BASE + path,
         method=method,
         data=json.dumps(payload).encode() if payload is not None else None,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
@@ -82,7 +86,7 @@ def cmd_add_shared(args) -> None:
     book = load_book()
     if args.name in book and book[args.name]["token"] != args.token:
         die(f"'{args.name}' already names a different store; pick another name")
-    info = call("GET", "/stores/" + urllib.parse.quote(args.token, safe=""))
+    info = call("GET", "/stores/_", token=args.token)
     book[args.name] = {"token": args.token, "purpose": info.get("purpose", "")}
     save_book(book)
     print(f"added '{args.name}' — {info.get('purpose','')} ({info.get('entry_count',0)} entries)")
@@ -101,8 +105,9 @@ def cmd_share(args) -> None:
     token = resolve(args.name)
     result = call(
         "POST",
-        f"/stores/{urllib.parse.quote(token, safe='')}/entries",
+        "/stores/_/entries",
         {"content": args.content, "author": AUTHOR, "tags": args.tag or []},
+        token=token,
     )
     if result.get("duplicate"):
         print(f"already in '{args.name}' (shared by {result['author']} on {result['created_at'][:10]})")
@@ -112,9 +117,8 @@ def cmd_share(args) -> None:
 
 def cmd_recall(args) -> None:
     token = resolve(args.name)
-    path = f"/stores/{urllib.parse.quote(token, safe='')}/entries"
     query = urllib.parse.urlencode({"q": args.query or "", "limit": args.limit})
-    entries = call("GET", f"{path}?{query}").get("entries", [])
+    entries = call("GET", f"/stores/_/entries?{query}", token=token).get("entries", [])
     if not entries:
         print(f"nothing in '{args.name}' matches that.")
         return

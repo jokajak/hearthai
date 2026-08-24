@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hearthmem
+  labels:
+    app.kubernetes.io/name: hearthmem
+spec:
+  # Exactly one. A second writer against the same git repository corrupts it.
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate: a rolling update would briefly run two pods
+    # against one volume, which is the failure this whole file is avoiding.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hearthmem
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hearthmem
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hearthmem
+          image: ghcr.io/jokajak/hearthmem:latest
+          imagePullPolicy: IfNotPresent
+          args: ["--root", "/data"]
+          ports:
+            - name: http
+              containerPort: 8765
+          env:
+            - name: HEARTHMEM_HOST
+              value: "0.0.0.0"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      # Long enough for an in-flight commit to finish and release the lock.
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: hearthmem-data
+        - name: tmp
+          emptyDir: {}
