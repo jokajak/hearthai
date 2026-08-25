@@ -24,6 +24,7 @@ token in `~/.hearthmem/stores.json`, so tokens do not need to appear in conversa
 
 ```
 hearthmem list                              # which stores this person can reach
+hearthmem list --tokens                     # same, plus each store's token
 hearthmem recall <name> [query]             # search a store
 hearthmem share <name> "<content>" [--tag t]   # put something in
 hearthmem create <name> "<purpose>"         # make a new store, prints its token
@@ -53,6 +54,11 @@ the tool. If the user has not clearly asked for something to go to a group, ask 
 **When creating a store**, the token it prints is the whole of access control.
 Anyone holding it can read and write. Show it to the user, tell them to pass it to
 the people who should have access, and do not put it anywhere it will be logged.
+
+**If the user asks what stores they have, or wants to invite someone to one they
+already made**, run `hearthmem list --tokens`. Plain `hearthmem list` never shows
+tokens — only reach for `--tokens` when the user is explicitly asking for a token
+to hand to someone, not as a routine part of answering "what stores do I have."
 
 ## What this does not do
 

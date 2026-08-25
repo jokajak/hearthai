@@ -98,7 +98,10 @@ def cmd_list(args) -> None:
         print("no stores yet. create one, or add one you were given a token for.")
         return
     for name, meta in sorted(book.items()):
-        print(f"{name:<20} {meta.get('purpose','')}")
+        if args.tokens:
+            print(f"{name:<20} {meta.get('purpose',''):<40} {meta['token']}")
+        else:
+            print(f"{name:<20} {meta.get('purpose','')}")
 
 
 def cmd_share(args) -> None:
@@ -143,6 +146,9 @@ def main() -> None:
     p.set_defaults(func=cmd_add_shared)
 
     p = sub.add_parser("list", help="list stores you can reach")
+    p.add_argument(
+        "--tokens", action="store_true", help="also print each store's token (e.g. to invite someone else)"
+    )
     p.set_defaults(func=cmd_list)
 
     p = sub.add_parser("share", help="put something into a store")
