@@ -16,11 +16,12 @@ where it belongs.
 already use rather than one more app to open. Personable means it is recognisably the same
 someone each time, not five stateless bots wearing one name in five channels.
 
-**Status: nothing is built, and most of this is a guess.** This README is a direction, not a
-specification. The shape below is what seems right today; almost all of it will change on contact
-with a working system, and the [open questions](#what-is-unknown) are as much a part of the
-design as the diagram. [`docs/SPEC.md`](docs/SPEC.md) holds a longer, older behavioral spec with
-more speculation in it; where they disagree, this file is current. Licensed AGPL-3.0.
+**Status: the shared-memory skill and service are built; the broader product is still a direction.**
+[`docs/ROADMAP.md`](docs/ROADMAP.md) is the authoritative near-term sequence, and
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) records the component boundaries. This README
+describes the longer-term shape. [`docs/SPEC.md`](docs/SPEC.md) is an older behavioral exploration;
+where these documents disagree, the roadmap and architecture documents are current. Licensed
+AGPL-3.0.
 
 ## The shape
 

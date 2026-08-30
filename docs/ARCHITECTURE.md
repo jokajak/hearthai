@@ -1,26 +1,21 @@
 # HearthAI Architecture
 
-**Status:** working architecture and approved single-user capability roadmap  
-**Roadmap design:** [`superpowers/specs/2026-08-30-capability-roadmap-design.md`](superpowers/specs/2026-08-30-capability-roadmap-design.md)  
-**Memory design detail:** [`superpowers/specs/2026-08-27-portable-cross-host-memory-design.md`](superpowers/specs/2026-08-27-portable-cross-host-memory-design.md)
+**Status:** working architecture for the authoritative capability roadmap  
+**Roadmap:** [`ROADMAP.md`](ROADMAP.md)  
+**Design detail:** [`superpowers/specs/2026-08-30-capability-roadmap-design.md`](superpowers/specs/2026-08-30-capability-roadmap-design.md)
 
-HearthAI starts as a browser product Josh can use every day, then layers in portable personal memory, safe access to external information, and governed tool interoperability. Multi-user sharing remains a long-term architectural direction without a release number.
+HearthAI begins as an OpenWebUI-based chat platform, adds a portable shared-memory skill and service, then layers in sandboxed external information and governed MCP interoperability.
 
-## Product model
+Long-term personal-memory ownership is unresolved. OpenWebUI supplies personal memory in 0.1; HearthAI initially specializes in deliberately shareable memory.
+
+## Product boundaries
 
 ```text
-Gateway       where the conversation happens
-Skill         portable partitioned-memory behavior
-Platform      durable state and governed capabilities
-Inference     model access and routing
+Gateway       OpenWebUI browser chat and gateway-local personal state
+Skill         portable shared-memory behavior
+Platform      shared-memory and governed capability services
+Inference     LiteLLM model routing
 ```
-
-No one implementation owns HearthAI:
-
-- OpenWebUI is the first gateway, not the permanent UI contract.
-- The Agent Skill carries partitioned-memory behavior across compatible hosts.
-- HearthAI platform services own durable memory and later security boundaries.
-- LiteLLM isolates HearthAI from model-provider APIs.
 
 ## System architecture
 
@@ -29,38 +24,31 @@ flowchart TB
     USER["Josh"]
 
     subgraph GATEWAYS["Gateways"]
-        OW["OpenWebUI<br/>first browser gateway"]
+        OW["OpenWebUI<br/>browser · history · personal memory"]
         CC["Claude Code"]
         CX["Codex"]
         OMP["Oh My Pi"]
     end
 
-    subgraph BEHAVIOR["Portable behavior"]
-        PERSONA["HearthAI persona"]
-        SKILL["HearthAI memory skill<br/>partition discovery · recall · write policy"]
-        OWADAPTER["OpenWebUI adapter<br/>prompt + tool descriptions"]
+    subgraph MEMORY["HearthAI shared memory"]
+        SKILL["shared-memory Agent Skill<br/>recall · propose · approve · share"]
+        OWADAPTER["OpenWebUI tool binding<br/>same behavioral contract"]
+        SERVICE["Shared-memory service<br/>stores · capability access · records · audit"]
+        STORE[("Replaceable shared-memory adapter")]
     end
 
-    subgraph PLATFORM["HearthAI platform"]
-        MEMORY["Memory service<br/>principal · private partition · records"]
-        FETCH["Sandboxed search/fetch service"]
-        MCP["Governed MCP boundary"]
+    subgraph LATER["Later governed capabilities"]
+        FETCH["0.3 web-research terminal<br/>narrow search/fetch facade"]
+        MCP["0.4 governed MCP"]
     end
 
     LITELLM["LiteLLM proxy"]
     MODELS["Hosted or self-hosted models"]
-    STORE[("Replaceable memory storage adapter")]
 
     USER --> OW
     USER --> CC
     USER --> CX
     USER --> OMP
-
-    OW --> PERSONA
-    OW --> OWADAPTER
-    CC --> SKILL
-    CX --> SKILL
-    OMP --> SKILL
 
     OW --> LITELLM
     CC --> LITELLM
@@ -68,113 +56,87 @@ flowchart TB
     OMP --> LITELLM
     LITELLM --> MODELS
 
-    OWADAPTER --> MEMORY
-    SKILL --> MEMORY
+    OW --> OWADAPTER
+    CC --> SKILL
+    CX --> SKILL
+    OMP --> SKILL
+    OWADAPTER --> SERVICE
+    SKILL --> SERVICE
+    SERVICE --> STORE
+
     OW -. "0.3" .-> FETCH
     OW -. "0.4" .-> MCP
-    MEMORY --> STORE
 
     classDef gateway fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#1f2937
-    classDef behavior fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1f2937
+    classDef memory fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1f2937
     classDef platform fill:#ccfbf1,stroke:#0f766e,stroke-width:2px,color:#1f2937
     classDef deferred fill:#f8fafc,stroke:#94a3b8,stroke-width:2px,stroke-dasharray:5 5,color:#475569
 
     class OW,CC,CX,OMP gateway
-    class PERSONA,SKILL,OWADAPTER behavior
-    class MEMORY platform
+    class SKILL,OWADAPTER,SERVICE,STORE memory
+    class LITELLM,MODELS platform
     class FETCH,MCP deferred
 ```
 
-## Component boundaries
+## Component responsibilities
 
 | Component | Owns | Does not own |
 |---|---|---|
-| **OpenWebUI** | Browser chat, streaming UI, server-side conversation history, OIDC sessions | HearthAI long-term memory semantics |
-| **HearthAI persona** | Stable assistant identity and baseline conversational behavior | Durable state or authorization |
-| **HearthAI memory skill** | Partition discovery, recall behavior, private-write policy, service invocation, honest failure reporting | Web UI, inference routing, fetch, MCP governance |
-| **OpenWebUI memory adapter** | Projecting the canonical memory behavior into OpenWebUI prompts and tool descriptions | Redefining partitions or access rules |
-| **Memory service** | Principal mapping, private partitions, records, retrieval, correction, deletion, export | Host-specific prompting or conversation history |
-| **Sandboxed fetch service** | Network policy, search/fetch, provenance, untrusted-content marking | General code execution or memory persistence |
-| **MCP boundary** | Approved servers and tools, scoped credentials, audit, approvals | Bypassing sandbox or memory policy |
-| **LiteLLM** | Model endpoint normalization and provider routing | HearthAI product state or memory |
+| **OpenWebUI** | Browser UI, streaming, conversations, OIDC sessions, near-term personal memory | HearthAI shared-memory semantics |
+| **LiteLLM** | Model endpoint normalization and provider routing | HearthAI state or policy |
+| **Shared-memory skill** | Store discovery, recall, record preparation, approval rules, service calls, honest failures | Browser UI, personal memory, fetch, MCP |
+| **OpenWebUI shared-memory adapter** | Exposing the shared-memory contract as OpenWebUI tools and descriptions | Redefining stores or access |
+| **Shared-memory service** | Store lifecycle, capability access, records, retrieval, audit, export | OpenWebUI account or personal-memory data |
+| **Web-research terminal** | Isolated process/filesystem environment and egress enforcement | Model-facing general shell access |
+| **Web-research facade** | Narrow search/fetch API, URL policy, provenance, taint | General terminal tools or shared-memory writes |
+| **MCP boundary** | Approved servers/tools, scoped credentials, audit, approvals | Bypassing sandbox or memory approval |
 
-## Current repository state
+## Memory architecture
 
-### Built
+### Personal memory
 
-- shared-memory Agent Skill;
-- network shared-memory service;
-- Markdown/frontmatter records;
-- Git-per-write versioning;
-- term-overlap retrieval;
-- idempotent duplicate handling;
-- Docker image;
-- single-replica hardened Helm deployment;
-- service, image, persistence, chart, and shutdown tests.
+OpenWebUI built-in memory is the 0.1 personal-memory implementation. It provides model-managed add/search/update/delete behavior and user-facing review controls.
 
-### Not yet built as a released HearthAI capability
+This is a near-term implementation choice, not a permanent ownership decision.
 
-- OpenWebUI gateway deployment owned by this repository;
-- Authentik OIDC integration;
-- LiteLLM gateway configuration;
-- versioned HearthAI persona;
-- personal cross-host memory release;
-- sandboxed external-information service;
-- governed MCP release.
-
-The working shared-memory slice remains useful implementation evidence. It does not force multi-user sharing into the near-term roadmap.
-
-## Portable memory model
-
-The skill provides the distinctive HearthAI concept of partitioned memory and a portable way to connect to the service.
-
-### Single-user release
+### HearthAI shareable memory
 
 ```text
-principal: Josh
-  └── private partition — exactly one, unshareable
+shared-memory service
+  ├── store: family
+  ├── store: trip-planning
+  └── store: project-x
 ```
 
-The private partition is service-backed and accessible from OpenWebUI plus at least one Agent Skills-compatible host. Conversation history remains OpenWebUI gateway data; durable memory remains HearthAI platform data.
+A store is a named memory partition accessed by capability. It can be used by multiple hosts and, through out-of-band token transfer, by other people without a HearthAI-managed account system.
 
-### Future multi-user shape
+The initial sharing model is capability-based rather than identity-membership-based:
 
 ```text
-principal
-  ├── private partition — exactly one, never shareable
-  └── shared stores — user-created, explicit membership
+store capability ─> access to one shared store
 ```
 
-The 0.2 API may preserve this general shape internally, but no shared-store, invitation, membership, or cross-principal endpoint is exposed until a multi-user trust model exists.
+### Write policy
 
-## Skill contract
+A model may recall from an available store. A shared write always requires a person to approve:
 
-The memory skill owns:
+1. the exact durable content;
+2. the exact destination store.
 
-1. discovering partitions available to the authenticated principal;
-2. recalling relevant context from the service;
-3. deciding what is durable enough to save;
-4. writing and correcting private memory;
-5. preserving provenance;
-6. surfacing service errors instead of claiming success;
-7. applying explicit approval to future non-private destinations.
+The model may propose; it may not silently share.
 
-Agent Skills-compatible hosts consume `SKILL.md`. OpenWebUI does not natively load Agent Skills, so its model configuration and OpenAPI tool descriptions must project the same behavior from the same canonical specification.
-
-## Release roadmap
+## Release architecture
 
 ```mermaid
 flowchart LR
-    V01["0.1<br/>Authenticated HearthAI chat"]
-    V02["0.2<br/>Portable personal memory"]
-    V03["0.3<br/>Sandboxed web fetch"]
+    V01["0.1<br/>OpenWebUI foundation"]
+    V02["0.2<br/>HearthAI shareable memory"]
+    V03["0.3<br/>Web-research terminal"]
     V04["0.4<br/>Governed MCP"]
-    FUTURE["Future<br/>Multi-user sharing"]
+    FUTURE["Future<br/>Verified users and richer sharing"]
 
-    V01 -->|identity + daily gateway| V02
-    V02 -->|memory provenance + approval| V03
-    V03 -->|sandbox + untrusted-content policy| V04
-    V02 -. "partition shape preserved" .-> FUTURE
+    V01 --> V02 --> V03 --> V04
+    V02 -. "capability limitations create evidence" .-> FUTURE
 
     classDef planned fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1f2937
     classDef deferred fill:#f8fafc,stroke:#94a3b8,stroke-width:2px,stroke-dasharray:5 5,color:#475569
@@ -182,7 +144,7 @@ flowchart LR
     class FUTURE deferred
 ```
 
-## 0.1 — Authenticated HearthAI chat
+## 0.1 — OpenWebUI foundation
 
 ### Architecture
 
@@ -190,38 +152,37 @@ flowchart LR
 flowchart LR
     USER["Josh"] --> OIDC["Authentik OIDC"]
     OIDC --> OW["OpenWebUI"]
-    OW --> DB[("OpenWebUI users<br/>sessions · conversations · messages")]
+    OW --> DB[("users · sessions<br/>conversations · messages<br/>personal memory")]
     OW --> LITE["LiteLLM model alias"]
     LITE --> MODEL["Configured model"]
-    PROMPT["Versioned HearthAI persona"] --> OW
 ```
 
 ### Included
 
-- Josh-only OIDC admission;
-- one HearthAI persona;
-- one LiteLLM model alias;
+- OpenWebUI;
+- Authentik through generic OIDC;
+- Josh-only access;
+- LiteLLM;
 - streaming chat;
-- server-side conversation history;
-- reopen, rename, and delete conversations;
-- logout and session expiry.
+- server-side conversations;
+- OpenWebUI built-in memory and Personalization UI;
+- durable database and secret configuration.
 
-### Disabled
+### Excluded
 
-- OpenWebUI memory;
-- HearthAI memory tools;
-- web search and URL fetch;
-- OpenAPI tools;
+- prescribed HearthAI persona;
+- HearthAI shared-memory tools;
+- web access;
 - MCP;
 - code execution;
-- arbitrary model selection;
-- public signup and invitations.
+- public signup and additional users;
+- custom frontend.
 
 ### Acceptance
 
-Josh can authenticate, stream a response from the configured HearthAI persona, close and reopen the browser, and recover the conversation. No memory or tool is visible or callable.
+Josh authenticates, chats through LiteLLM, recovers conversations after restart, and can add/review/correct/delete OpenWebUI personal memory. No external tool is callable.
 
-## 0.2 — Per-person LLM-managed memory
+## 0.2 — HearthAI shareable memory
 
 ### Architecture
 
@@ -229,142 +190,157 @@ Josh can authenticate, stream a response from the configured HearthAI persona, c
 sequenceDiagram
     actor Josh
     participant OW as OpenWebUI
-    participant Mem as HearthAI memory service
-    participant Host as Skill-compatible host
+    participant Mem as HearthAI shared-memory service
+    participant Host as Agent Skills host
 
-    Josh->>OW: Share durable information
-    OW->>Mem: Save to Josh's private partition
-    Mem-->>OW: Stored record + provenance
-    Josh->>Host: Ask about that information
-    Host->>Mem: Recall from same private partition
-    Mem-->>Host: Same record
-    Josh->>Host: Correct the record
-    Host->>Mem: Update memory
-    Mem-->>OW: Correction visible on next recall
+    Josh->>OW: Create or connect to a named store
+    OW->>Mem: Use store capability
+    Mem-->>OW: Store metadata
+    Josh->>OW: Approve exact shared record
+    OW->>Mem: Write approved record
+    Josh->>Host: Recall from the same store
+    Host->>Mem: Query using the store capability
+    Mem-->>Host: Same shared record
 ```
 
 ### Included
 
-- stable principal mapping from Josh's OIDC identity;
-- one unshareable private partition;
-- HearthAI memory service;
-- portable memory skill;
-- OpenWebUI adapter;
-- model-managed add, search, update, and delete;
-- user-visible review and deletion;
-- timestamps and source-host provenance;
-- host-neutral export and backup;
-- at least one non-OpenWebUI host using the same partition.
+- existing shared-memory service;
+- portable shared-memory skill;
+- OpenWebUI tool binding;
+- named stores;
+- capability-token access;
+- out-of-band capability sharing;
+- store-specific recall;
+- approval before every shared write;
+- audit and provenance;
+- cross-host access;
+- backup and human-readable export.
+
+### Explicit boundary
+
+0.2 does not replace OpenWebUI personal memory and does not add a HearthAI private partition. Whether personal memory eventually moves into HearthAI remains unresolved.
 
 ### Acceptance
 
-A fact saved in OpenWebUI is recalled and corrected from another host, then the correction is visible back in OpenWebUI. No shared or second-principal API exists.
+OpenWebUI and one Agent Skills-compatible host use the same named store. A host without its capability has no access. Every write records exact approved content and destination. Tokens never enter URLs, prompts, stored memories, or logs.
 
-## 0.3 — Sandboxed web search and fetch
+## 0.3 — Isolated web-research terminal
 
-### Security boundary
+### Layered boundary
 
 ```mermaid
 flowchart LR
-    HOST["OpenWebUI model"] --> API["HearthAI fetch API"]
-    API --> POLICY{"Destination policy"}
-    POLICY -- "public HTTP(S)" --> FETCH["Isolated fetch worker"]
-    POLICY -- "private / local / metadata" --> DENY["Deny"]
-    FETCH --> EXTRACT["Bounded text extraction"]
-    EXTRACT --> RESULT["Content + URL + provenance<br/>marked untrusted"]
-    RESULT -. "memory write requires approval" .-> MEMORY["Private memory"]
+    MODEL["OpenWebUI model"] --> FACADE["HearthAI web-research facade<br/>search_web · fetch_url only"]
+    FACADE --> TERMINAL["Dedicated Open Terminal container"]
+    TERMINAL --> FIREWALL["Egress firewall + destination policy"]
+    FIREWALL -- "public HTTP(S)" --> WEB["Public web"]
+    FIREWALL -- "private / local / metadata" --> DENY["Deny"]
+    TERMINAL --> RESULT["Bounded extracted content<br/>source provenance · untrusted"]
+    RESULT -. "shared write requires approval" .-> MEMORY["Shared-memory store"]
 ```
 
-### Included
+Open Terminal is the preferred execution-substrate hypothesis, not the model-facing API. A custom facade exposes only search and fetch.
 
-- public HTTP(S) only;
-- private, loopback, link-local, cluster, and metadata destinations blocked;
-- redirect, timeout, type, and size limits;
-- no ambient credentials;
-- source provenance;
-- fetched content marked untrusted;
-- explicit approval before web-influenced memory writes;
-- no shell, filesystem, or arbitrary socket access.
+### Terminal isolation
+
+- dedicated `web-research` container;
+- custom minimal image or fixed startup packages;
+- egress firewall;
+- no host Docker socket;
+- no private volumes;
+- no host or browser credentials;
+- no access to other terminals;
+- Open Terminal API key held only by the facade.
+
+### Model-facing surface
+
+The model does not receive Open Terminal's general tools:
+
+- no `run_command`;
+- no file write;
+- no package install;
+- no process management;
+- no Docker tools;
+- no arbitrary sockets.
+
+It receives only the narrow `search_web` and `fetch_url` contract, plus source provenance and explicit untrusted-content marking.
 
 ### Acceptance
 
-HearthAI can cite a fetched public page, cannot reach internal addresses through direct URLs or redirects, and cannot silently persist page instructions.
+HearthAI can cite a fetched public page, cannot reach internal addresses through direct URLs or redirects, and cannot silently persist page instructions. The model cannot access a general terminal surface.
 
-## 0.4 — Governed MCP interoperability
-
-### Architecture
+## 0.4 — Governed MCP
 
 ```mermaid
 flowchart LR
     ADMIN["Admin-approved registry"] --> MCP["MCP boundary"]
     USER["Josh"] --> OW["OpenWebUI"]
     OW --> MCP
-    MCP --> POLICY["Server/tool allowlist<br/>credential scope · approval · audit"]
+    MCP --> POLICY["Server/tool allowlist<br/>credentials · approval · audit"]
     POLICY --> HTTP["Streamable HTTP MCP"]
     POLICY --> BRIDGE["Isolated stdio bridge"]
-    HTTP --> TOOLS["Approved external tools"]
+    HTTP --> TOOLS["Approved tools"]
     BRIDGE --> TOOLS
 ```
 
-### Included
+MCP is introduced only after the web-research release establishes isolation, provenance, and approval rules. Tool output is untrusted and cannot silently write shared memory.
 
-- admin-only server registration;
-- server and tool allowlists;
-- assignment to Josh;
-- credentials outside model context;
-- per-user OAuth where supported;
-- encrypted token persistence through durable OpenWebUI secrets;
-- audit and revocation;
-- approval gates for consequential operations;
-- stdio only through isolation;
-- tool output remains untrusted for memory purposes.
+## Current repository state
 
-### Acceptance
+### Built
 
-Only approved servers and tools are visible and callable. Revocation applies on the next invocation. Consequential operations stop for approval. Tool output cannot silently modify memory.
+- shared-memory Agent Skill;
+- network shared-memory service;
+- Markdown/frontmatter persistence;
+- Git-per-write history;
+- term-overlap retrieval;
+- idempotent duplicate handling;
+- Docker image and hardened single-replica Helm chart;
+- service, image, chart, persistence, and shutdown tests.
 
-## Deferred — Multi-user and shareable stores
+### Not yet released through the roadmap
 
-No current release includes:
+- OpenWebUI platform configuration;
+- Authentik OIDC integration;
+- LiteLLM configuration;
+- OpenWebUI binding for the shared-memory service;
+- isolated web-research terminal and narrow facade;
+- governed MCP configuration.
 
-- invited users;
-- public signup;
-- shared-store creation;
-- membership management;
-- household roles;
-- guardian relationships;
-- cross-principal reads;
-- shared-write approval UX.
+## Deferred architecture
 
-A multi-user release requires a credible path for account lifecycle, invitations, membership, ownership, recovery, revocation, privacy, audit, and incident response. Until those exist, shareable stores remain an architectural direction rather than a promised version.
+No numbered release promises:
+
+- HearthAI-managed user accounts;
+- invitations and verified membership;
+- household roles or guardianship;
+- account recovery and deprovisioning;
+- operator-unreadable private memory;
+- permanent personal-memory ownership;
+- automatic discovery of other people.
+
+These decisions follow evidence from 0.1 and 0.2.
 
 ## Technology decision status
 
 | Concern | Status |
 |---|---|
-| OpenWebUI as first browser gateway | Approved for 0.1 |
+| OpenWebUI as initial platform | Approved for 0.1 |
+| OpenWebUI built-in personal memory | Approved near-term; permanent ownership unresolved |
+| Prescribed HearthAI persona | Excluded from 0.1 |
 | Generic OIDC with Authentik | Approved for 0.1 |
 | LiteLLM inference boundary | Approved for 0.1 |
-| One HearthAI persona/model alias | Approved for 0.1 |
-| HearthAI memory service + skill | Approved for 0.2 |
-| OpenWebUI built-in memory as canonical store | Rejected; not portable |
-| Files + Git memory adapter | Provisional implementation option |
-| Neo4j or graph backend | Deferred until a measured graph-shaped query exists |
-| Sandboxed fetch service | Approved boundary for 0.3 |
+| HearthAI shared-memory skill/service | Approved for 0.2 |
+| Capability-token sharing | Approved starting model; scope/revocation still open |
+| Open Terminal for web research | Preferred 0.3 substrate hypothesis |
+| Narrow OpenAPI versus MCP facade | Open 0.3 decision |
 | OpenWebUI native MCP | Approved integration surface for 0.4, subject to governance |
+| Personal memory migration to HearthAI | Unresolved |
+| Neo4j or graph backend | Deferred until a measured graph-shaped query exists |
 | n8n | Deferred until a recurring asynchronous workflow exists |
-| Multi-user sharing | Deferred without a release number |
+| Rich multi-user identity | Deferred without a release number |
 
-## Release discipline
+## Session recovery
 
-A release advances only after its deployed user-facing acceptance scenario passes. Compiling infrastructure is not a release boundary.
-
-Each release updates:
-
-- this architecture document;
-- its threat model;
-- deployment and rollback documentation;
-- live acceptance evidence;
-- the memory skill when partition behavior changes.
-
-The roadmap optimizes for usable capability and architectural learning, not feature count.
+Continue roadmap work from [`ROADMAP.md`](ROADMAP.md). Treat that file's 0.1–0.4 order and open decisions as authoritative. Older personal-memory implementation documents are archived context, not the current plan.

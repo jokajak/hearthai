@@ -1,6 +1,6 @@
 # Portable Cross-Host Memory Implementation Plan
 
-> **PAUSED — DO NOT EXECUTE AS THE CURRENT ROADMAP.** The approved [`2026-08-30 capability roadmap`](../specs/2026-08-30-capability-roadmap-design.md) starts with 0.1 authenticated chat. This plan is retained as detailed 0.2 memory work and must be rewritten from the deployed 0.1 state before execution resumes.
+> **ARCHIVED — DO NOT EXECUTE.** The authoritative [`HearthAI roadmap`](../../ROADMAP.md) defines 0.2 as shareable-memory integration, not personal-memory replacement. Long-term personal-memory ownership is unresolved. This plan is retained only as historical implementation research.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

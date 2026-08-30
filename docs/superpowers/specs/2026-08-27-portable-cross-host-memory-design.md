@@ -1,11 +1,11 @@
 # Portable Cross-Host Memory Design
 
-**Status:** Deferred detailed design for roadmap 0.2; not the current implementation target  
+**Status:** Archived exploration; superseded by `docs/ROADMAP.md` and not assigned to a numbered release  
 **Date:** 2026-08-27  
 **First hosts:** Claude Code and OpenWebUI  
 **Canonical contract:** OpenAPI 3.x
 
-> Immediate sequencing is governed by [`2026-08-30-capability-roadmap-design.md`](2026-08-30-capability-roadmap-design.md), which starts with the 0.1 authenticated chat gateway.
+> Do not treat this as the 0.2 design. Roadmap 0.2 is HearthAI shareable memory; long-term personal-memory ownership is unresolved.
 
 ## Summary
 
