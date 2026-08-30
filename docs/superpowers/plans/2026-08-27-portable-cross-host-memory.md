@@ -1,5 +1,7 @@
 # Portable Cross-Host Memory Implementation Plan
 
+> **PAUSED — DO NOT EXECUTE AS THE CURRENT ROADMAP.** The approved [`2026-08-30 capability roadmap`](../specs/2026-08-30-capability-roadmap-design.md) starts with 0.1 authenticated chat. This plan is retained as detailed 0.2 memory work and must be rewritten from the deployed 0.1 state before execution resumes.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a Python 3.14 HearthAI personal-memory API that lets Claude Code and OpenWebUI explicitly save and recall the same records through one OpenAPI contract.

@@ -1,9 +1,11 @@
 # Portable Cross-Host Memory Design
 
-**Status:** Approved design; awaiting written-spec review  
+**Status:** Deferred detailed design for roadmap 0.2; not the current implementation target  
 **Date:** 2026-08-27  
 **First hosts:** Claude Code and OpenWebUI  
 **Canonical contract:** OpenAPI 3.x
+
+> Immediate sequencing is governed by [`2026-08-30-capability-roadmap-design.md`](2026-08-30-capability-roadmap-design.md), which starts with the 0.1 authenticated chat gateway.
 
 ## Summary
 
