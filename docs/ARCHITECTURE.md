@@ -253,7 +253,7 @@ flowchart LR
     RESULT -. "shared write requires approval" .-> MEMORY["Shared-memory store"]
 ```
 
-OpenWebUI invokes one model-facing web-research capability. `ai-jobs` creates an internal execution record and one Kubernetes Job using a fixed worker image and policy. Short requests may return during the initial call; longer work may continue inside the orchestration layer, but job identifiers and polling never become part of the user experience.
+OpenWebUI invokes one model-facing web-research capability. `ai-jobs` creates an internal execution record and one Kubernetes Job using a fixed worker image and policy. Research either returns a terminal result during that synchronous tool call or fails as `deadline_exceeded`; asynchronous continuation, job identifiers, and polling are not part of 0.3.
 
 The worker uses LiteLLM plus constrained search and page-fetch operations brokered by `ai-jobs`. Provider credentials stay in the control plane, while the worker receives only a job-scoped HearthAI capability. Web content is untrusted evidence and cannot expand worker authority or bypass the existing approval boundary for shared-memory writes.
 

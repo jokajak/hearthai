@@ -1,8 +1,8 @@
 # HearthAI Roadmap
 
-**Status:** authoritative capability roadmap  
+**Status:** authoritative capability roadmap<br>
 **Last updated:** 2026-09-07<br>
-**Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)  
+**Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)<br>
 **Design detail:** [`superpowers/specs/2026-08-30-capability-roadmap-design.md`](superpowers/specs/2026-08-30-capability-roadmap-design.md)
 
 ## Direction
@@ -148,7 +148,7 @@ Let OpenWebUI transparently delegate current or deeper web research to HearthAI 
 
 `ai-jobs` is an independently deployable HearthAI control-plane service. For every request, it creates one Kubernetes Job running the fixed web-research worker. The worker performs a bounded research loop through job-scoped LiteLLM, search, and fetch capabilities brokered by the control plane, then submits a structured result.
 
-Short requests may complete synchronously. Longer requests may continue asynchronously inside the orchestration layer, but OpenWebUI users never manage job identifiers, polling, Kubernetes resources, or a separate dashboard.
+Research is synchronous in 0.3: it either returns a terminal result within the OpenWebUI tool request or fails as `deadline_exceeded`. The worker deadline is shorter than the OpenWebUI tool timeout so the control plane has time to validate and return the terminal response. OpenWebUI users never manage job identifiers, polling, Kubernetes resources, or a separate dashboard.
 
 ### Included
 
@@ -165,7 +165,7 @@ Short requests may complete synchronously. Longer requests may continue asynchro
 - DNS and redirect revalidation;
 - response-type, size, and timeout limits;
 - structured synthesis, findings, evidence, source URLs, conflicts, uncertainty, and limitations;
-- synchronous waiting and hidden asynchronous continuation;
+- synchronous completion within the OpenWebUI tool timeout, with bounded worker and response-delivery margins;
 - stable failure categories that do not expose Kubernetes details;
 - health, readiness, and aggregate operational metrics without sensitive labels;
 - fetched content treated as untrusted evidence;
@@ -182,7 +182,7 @@ General execution remains explicitly out of scope. No model-facing interface acc
 
 1. OpenWebUI invokes web research from a normal conversation and receives a validated result with synthesis, evidence, citations, conflicts, and limitations.
 2. HearthAI creates one new worker Job per execution, and the worker terminates and is cleaned up according to retention policy.
-3. Short and long research complete without asking the user to copy a job ID, poll, or operate Kubernetes.
+3. Research completes synchronously within the configured tool timeout or fails as `deadline_exceeded`, without asking the user to copy a job ID, poll, or operate Kubernetes.
 4. Direct and redirected requests cannot reach private, local, cluster, or metadata destinations.
 5. Oversized, binary, unsupported, malformed, provider-failed, and timed-out work fails explicitly through stable categories.
 6. Worker pods contain neither provider credentials nor Kubernetes credentials and have no durable state.

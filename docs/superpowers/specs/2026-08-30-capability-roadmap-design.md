@@ -183,6 +183,8 @@ The model may propose a write but may not perform one autonomously.
 
 ## 0.3 — Sandboxed web search and fetch
 
+> **Superseded for 0.3:** The Open Terminal approach below is retained as historical design context. The current implementation direction is the [`ai-jobs` web-research plan](../plans/2026-09-07-ai-jobs-web-research.md).
+
 ### Purpose
 
 Use current external information without granting general execution or treating fetched content as trusted.
