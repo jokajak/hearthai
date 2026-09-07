@@ -1,0 +1,7 @@
+{
+  "summary": "Unsupported result.",
+  "findings": [{"statement":"A claim.","evidence":[{"source_id":"missing","support":"No matching source."}],"confidence":"low"}],
+  "sources": [],
+  "conflicts": [],
+  "limitations": []
+}

@@ -1,13 +1,13 @@
 # HearthAI Roadmap
 
-**Status:** authoritative capability roadmap  
-**Last updated:** 2026-08-30  
-**Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)  
+**Status:** authoritative capability roadmap<br>
+**Last updated:** 2026-09-07<br>
+**Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)<br>
 **Design detail:** [`superpowers/specs/2026-08-30-capability-roadmap-design.md`](superpowers/specs/2026-08-30-capability-roadmap-design.md)
 
 ## Direction
 
-HearthAI begins by adopting OpenWebUI as a useful chat platform, then adds HearthAI's distinctive shared-memory skill and service, then safe external-information access, then governed MCP interoperability.
+HearthAI begins by adopting OpenWebUI as a useful chat platform, then adds HearthAI's distinctive shared-memory skill and service, then delegated web research, then governed MCP interoperability.
 
 The near-term roadmap does **not** build a custom web UI, prescribe a HearthAI persona, replace OpenWebUI's personal memory, or introduce HearthAI user accounts.
 
@@ -16,7 +16,7 @@ The near-term roadmap does **not** build a custom web UI, prescribe a HearthAI p
   ↓
 0.2 HearthAI shareable memory
   ↓
-0.3 sandboxed web search and fetch
+0.3 delegated web research with ai-jobs
   ↓
 0.4 governed MCP
   ↓
@@ -31,7 +31,7 @@ future verified users and richer sharing semantics
 | Inference | LiteLLM | Model/provider routing behind one endpoint |
 | Shared-memory behavior | HearthAI Agent Skill | When to recall, share, ask approval, and report failures |
 | Shared-memory state | HearthAI service | Stores, capability access, records, retrieval, audit |
-| Web access | HearthAI capability service | Sandboxing, network policy, provenance, taint |
+| Web research | HearthAI `ai-jobs` service | Authorization, ephemeral worker orchestration, bounded search and fetch, result delivery, provenance, and aggregate observability |
 | General tools | Governed MCP boundary | Server/tool allowlists, credentials, audit, approvals |
 
 OpenWebUI's native memory is the near-term personal-memory implementation. HearthAI's memory service initially owns only deliberately shareable stores. **Long-term personal-memory ownership is unresolved:** the roadmap commits neither to permanent OpenWebUI ownership nor to an eventual HearthAI migration.
@@ -138,41 +138,57 @@ The current service's unrevocable full-access tokens are implementation evidence
 - whether revocation, read/write scopes, or verified membership are required next;
 - whether personal memory should remain gateway-owned or move toward a HearthAI-owned boundary.
 
-## 0.3 — Sandboxed web search and fetch
+## 0.3 — Delegated web research with `ai-jobs`
 
 ### Purpose
 
-Give HearthAI current external information without general execution or trusted-content assumptions.
+Let OpenWebUI transparently delegate current or deeper web research to HearthAI and receive a source-backed result without exposing infrastructure concepts to the user.
 
-### Preferred implementation hypothesis
+### Architecture
 
-Use a dedicated Open Terminal container as the execution substrate, behind a custom HearthAI tool facade that exposes only web-research operations.
+`ai-jobs` is an independently deployable HearthAI control-plane service. For every request, it creates one Kubernetes Job running the fixed web-research worker. The worker performs a bounded research loop through job-scoped LiteLLM, search, and fetch capabilities brokered by the control plane, then submits a structured result.
 
-OpenWebUI does **not** receive Open Terminal's general `run_command`, file-write, package-install, process-management, or Docker tools in 0.3.
+Research is synchronous in 0.3: it either returns a terminal result within the OpenWebUI tool request or fails as `deadline_exceeded`. The worker deadline is shorter than the OpenWebUI tool timeout so the control plane has time to validate and return the terminal response. OpenWebUI users never manage job identifiers, polling, Kubernetes resources, or a separate dashboard.
 
 ### Included
 
-- one dedicated `web-research` Open Terminal environment;
-- custom image or startup configuration containing only required search/fetch tooling;
-- narrow OpenAPI or MCP facade exposing `search_web` and `fetch_url`;
-- Open Terminal API key held by the facade, outside model context;
-- egress firewall and public HTTP/HTTPS only;
-- no host Docker socket, private volumes, local credentials, or browser sessions;
+- a model-facing web-research contract containing research intent and bounded options only;
+- caller authentication and authorization;
+- durable internal execution state and terminal result storage;
+- one isolated, ephemeral Kubernetes Job per research execution;
+- a fixed web-research worker image, command, privileges, and resource policy;
+- worker-scoped authorization with provider credentials retained by `ai-jobs`;
+- a bounded research loop using LiteLLM plus constrained search and page fetch;
+- public HTTP/HTTPS fetches only;
+- no Kubernetes service-account token, host mount, private volume, durable worker filesystem, local credentials, or browser session;
 - private, loopback, link-local, cluster, and cloud-metadata destinations blocked;
 - DNS and redirect revalidation;
 - response-type, size, and timeout limits;
-- extracted content plus source provenance;
-- fetched content marked untrusted;
-- audit events without fetched content or secrets;
+- structured synthesis, findings, evidence, source URLs, conflicts, uncertainty, and limitations;
+- synchronous completion within the OpenWebUI tool timeout, with bounded worker and response-delivery margins;
+- stable failure categories that do not expose Kubernetes details;
+- health, readiness, and aggregate operational metrics without sensitive labels;
+- fetched content treated as untrusted evidence;
+- audit events without full fetched content, research questions, URLs, credentials, or other secrets;
 - explicit approval before web-influenced writes to HearthAI shared memory.
+
+### Ownership
+
+HearthAI owns the contracts, control plane, worker behavior, container images, Helm chart, tests, and release artifacts. `home-ops` owns the namespace and deployment wiring, namespace-scoped RBAC, storage, network policy, Bitwarden-backed secret delivery, OpenWebUI tool registration, version pins, and health and metrics collection.
+
+General execution remains explicitly out of scope. No model-facing interface accepts images, commands, environment variables, credentials, pod configuration, shell operations, filesystem operations, package installation, process management, Docker access, or arbitrary sockets.
 
 ### Acceptance
 
-1. HearthAI fetches and cites an allowed public page.
-2. Direct and redirected requests cannot reach internal or metadata addresses.
-3. Oversized, binary, unsupported, and timed-out responses fail explicitly.
-4. Fetched instructions cannot invoke tools or write shared memory without approval.
-5. The model cannot access a shell, filesystem, arbitrary socket, package installer, process manager, or general Open Terminal command tool.
+1. OpenWebUI invokes web research from a normal conversation and receives a validated result with synthesis, evidence, citations, conflicts, and limitations.
+2. HearthAI creates one new worker Job per execution, and the worker terminates and is cleaned up according to retention policy.
+3. Research completes synchronously within the configured tool timeout or fails as `deadline_exceeded`, without asking the user to copy a job ID, poll, or operate Kubernetes.
+4. Direct and redirected requests cannot reach private, local, cluster, or metadata destinations.
+5. Oversized, binary, unsupported, malformed, provider-failed, and timed-out work fails explicitly through stable categories.
+6. Worker pods contain neither provider credentials nor Kubernetes credentials and have no durable state.
+7. Fetched instructions cannot expand worker authority, invoke general tools, or write shared memory without approval.
+8. Health and aggregate metrics answer operational questions without user, conversation, question, URL, citation, credential, or job-ID labels.
+9. The model cannot access a shell, filesystem, arbitrary socket, package installer, process manager, Docker tool, or general Kubernetes Job API.
 
 ## 0.4 — Governed MCP
 
@@ -225,7 +241,7 @@ These are introduced only if 0.2 proves capability-based shared stores valuable 
 3. How should OpenWebUI consume the shared-memory skill semantics: OpenAPI descriptions, a model prompt fragment, or both?
 4. Who owns personal memory long term? OpenWebUI is the 0.1 implementation, but permanent ownership versus future HearthAI ownership is unresolved.
 5. Which Agent Skills-compatible host proves 0.2 portability first?
-6. Is Open Terminal the final 0.3 substrate, and should the narrow facade use OpenAPI or MCP?
+6. Which search provider and bounded research defaults should `ai-jobs` use for 0.3?
 7. Which first MCP integration is useful enough to justify 0.4?
 
 ## Paused implementation work
