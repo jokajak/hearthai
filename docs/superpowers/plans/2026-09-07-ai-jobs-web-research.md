@@ -1,5 +1,26 @@
 # AI Jobs Web Research Implementation Plan
 
+> **⚠️ SUPERSEDED 2026-09-07, before implementation completed.** This plan specified the
+> wrong capability. It was approved without close review and describes a *web research*
+> product — an agentic research loop in a per-request Kubernetes Job, returning findings
+> with citations, conflicts, and limitations.
+>
+> The actual requirement is a **broker for every web fetch OpenWebUI performs**, so that
+> retrieval of untrusted pages happens away from a credentialed pod and page text is
+> neutralised before it reaches a model context. Research synthesis, provenance, and
+> citations are removed goals, not deferred ones.
+>
+> The current plan is
+> [`2026-09-07-hearthfetch-brokered-web-fetch.md`](2026-09-07-hearthfetch-brokered-web-fetch.md).
+> The code written against this document (`service/ai_jobs/`,
+> `service/web_research_worker/`) has been removed; recover it from git history at
+> `383e94c` if needed.
+>
+> Retained as historical context for why the control-plane machinery was dropped. Two
+> things here remain correct and were carried forward: the fetch-policy requirements in
+> Task 5, and Decision 7 — web content is evidence, not authority — which was the only
+> genuinely anti-injection decision in this document.
+
 > **Planning only.** This document defines the implementation sequence for the first
 > HearthAI tool. It does not authorize implementing a general job runner or the future
 > code-workspace tool.

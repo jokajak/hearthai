@@ -4,7 +4,7 @@
 **Roadmap:** [`ROADMAP.md`](ROADMAP.md)  
 **Design detail:** [`superpowers/specs/2026-08-30-capability-roadmap-design.md`](superpowers/specs/2026-08-30-capability-roadmap-design.md)
 
-HearthAI begins as an OpenWebUI-based chat platform, adds a portable shared-memory skill and service, then layers in delegated web research and governed MCP interoperability.
+HearthAI begins as an OpenWebUI-based chat platform, adds a portable shared-memory skill and service, then takes ownership of web fetching so untrusted pages are retrieved and neutralised away from a credentialed process, then adds governed MCP interoperability.
 
 Long-term personal-memory ownership is unresolved. OpenWebUI supplies personal memory in 0.1; HearthAI initially specializes in deliberately shareable memory.
 
@@ -38,8 +38,7 @@ flowchart TB
     end
 
     subgraph LATER["Later governed capabilities"]
-        JOBS["0.3 ai-jobs<br/>delegated web research"]
-        WORKER["Ephemeral web-research worker"]
+        FETCH["0.3 hearthfetch<br/>brokered web fetch"]
         MCP["0.4 governed MCP"]
     end
 
@@ -65,8 +64,7 @@ flowchart TB
     SKILL --> SERVICE
     SERVICE --> STORE
 
-    OW -. "0.3" .-> JOBS
-    JOBS -. "one worker per execution" .-> WORKER
+    OW -. "0.3 · all page fetches" .-> FETCH
     OW -. "0.4" .-> MCP
 
     classDef gateway fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#1f2937
@@ -77,7 +75,7 @@ flowchart TB
     class OW,CC,CX,OMP gateway
     class SKILL,OWADAPTER,SERVICE,STORE memory
     class LITELLM,MODELS platform
-    class JOBS,WORKER,MCP deferred
+    class FETCH,MCP deferred
 ```
 
 ## Component responsibilities
@@ -89,15 +87,16 @@ flowchart TB
 | **Shared-memory skill** | Store discovery, recall, record preparation, approval rules, service calls, honest failures | Browser UI, personal memory, fetch, MCP |
 | **OpenWebUI shared-memory adapter** | Exposing the shared-memory contract as OpenWebUI tools and descriptions | Redefining stores or access |
 | **Shared-memory service** | Store lifecycle, capability access, records, retrieval, audit, export | OpenWebUI account or personal-memory data |
-| **`ai-jobs` control plane** | Research request validation, authorization, execution state, fixed Kubernetes Job lifecycle, result delivery, health, and metrics | General job execution, user-facing job administration, or model-selected runtime configuration |
-| **Web-research worker** | One bounded research loop, source evaluation, and a structured cited result | Durable state, provider or Kubernetes credentials, general shell access, or shared-memory writes |
+| **`hearthfetch`** | Retrieving untrusted pages on OpenWebUI's behalf, fetch policy, sanitising page text, marking content as untrusted data, brokering the search provider, and aggregate metrics | Durable state, research synthesis, citations, caching, JavaScript execution, or any general execution surface |
 | **MCP boundary** | Approved servers/tools, scoped credentials, audit, approvals | Bypassing sandbox or memory approval |
 
 ## Deployment ownership
 
-HearthAI owns the `ai-jobs` request and result contracts, control-plane and worker behavior, container images, Helm chart, and release automation. The separate `home-ops` repository owns cluster deployment and integration wiring: namespace-scoped RBAC, storage, network policy, secret delivery, OpenWebUI tool registration, version pins, and observability configuration.
+HearthAI owns `hearthfetch`'s behavior — fetch policy, sanitiser, envelope — plus its container image, Helm chart, and release automation. It does **not** own the wire contract: `hearthfetch` implements OpenWebUI's `external` loader and search contracts, pinned to the deployed version, so a change there is an upstream-compatibility question rather than a product decision.
 
-Neither deployment configuration nor OpenWebUI may turn `ai-jobs` into a general job runner. The model-facing capability accepts research intent and bounded research options only; images, commands, environment variables, credentials, Kubernetes objects, shells, and filesystems remain out of scope.
+The separate `home-ops` repository owns cluster deployment and integration wiring: OpenWebUI's `WEB_*` configuration, secret delivery, version pins, observability, and the network policies. The isolation claim rests on those policies — default-deny egress on `open-webui` — and `hearthfetch` must never be documented as though it enforces that itself.
+
+`hearthfetch` is stateless and stays that way. No run records, no durable storage, no per-request Kubernetes object, no cache. Neither deployment configuration nor OpenWebUI may give it a lifecycle to manage.
 
 ## Memory architecture
 
@@ -139,7 +138,7 @@ The model may propose; it may not silently share.
 flowchart LR
     V01["0.1<br/>OpenWebUI foundation"]
     V02["0.2<br/>HearthAI shareable memory"]
-    V03["0.3<br/>Delegated web research"]
+    V03["0.3<br/>Brokered web fetch"]
     V04["0.4<br/>Governed MCP"]
     FUTURE["Future<br/>Verified users and richer sharing"]
 
@@ -233,56 +232,78 @@ sequenceDiagram
 
 OpenWebUI and one Agent Skills-compatible host use the same named store. A host without its capability has no access. Every write records exact approved content and destination. Tokens never enter URLs, prompts, stored memories, or logs.
 
-## 0.3 — Delegated web research with `ai-jobs`
+## 0.3 — Brokered web fetch with `hearthfetch`
 
 ### Layered boundary
 
 ```mermaid
 flowchart LR
-    MODEL["OpenWebUI model"] --> JOBS["HearthAI ai-jobs<br/>web-research capability"]
-    JOBS --> K8S["Fixed Kubernetes Job"]
-    K8S --> WORKER["Ephemeral web-research worker<br/>one execution"]
-    WORKER -->|"job-scoped capability"| JOBS
-    JOBS --> LLM["LiteLLM"]
-    JOBS --> POLICY["Constrained search and fetch"]
+    OW["OpenWebUI retrieval"] -->|"external loader · external search"| HF["HearthAI hearthfetch"]
+    HF --> POLICY["Fetch policy"]
     POLICY -- "public HTTP(S)" --> WEB["Public web"]
-    POLICY -- "private / local / metadata" --> DENY["Deny"]
-    WORKER --> RESULT["Synthesis · evidence · citations<br/>conflicts · limitations"]
-    RESULT --> JOBS
-    JOBS --> MODEL
-    RESULT -. "shared write requires approval" .-> MEMORY["Shared-memory store"]
+    POLICY -- "private / local / cluster / metadata" --> DENY["Deny"]
+    WEB --> SAN["Sanitiser<br/>hidden text · comments · metadata<br/>invisible Unicode"]
+    SAN --> ENV["Untrusted-content envelope"]
+    ENV --> OW
+    OW -. "denied by network policy" .-> WEB
 ```
 
-OpenWebUI invokes one model-facing web-research capability. `ai-jobs` creates an internal execution record and one Kubernetes Job using a fixed worker image and policy. Research either returns a terminal result during that synchronous tool call or fails as `deadline_exceeded`; asynchronous continuation, job identifiers, and polling are not part of 0.3.
+OpenWebUI's `external` loader and search engines point at `hearthfetch`, which fetches,
+sanitises, envelopes, and returns text. It is stateless: a request is answered or it
+fails, with no record kept.
 
-The worker uses LiteLLM plus constrained search and page-fetch operations brokered by `ai-jobs`. Provider credentials stay in the control plane, while the worker receives only a job-scoped HearthAI capability. Web content is untrusted evidence and cannot expand worker authority or bypass the existing approval boundary for shared-memory writes.
+### What the boundary does and does not buy
 
-### Worker isolation
+**It does not stop prompt injection.** Injected text still arrives in the model's context;
+delivering page text is the purpose of the call. What moves is where the fetch runs and
+what that process can reach.
 
-- a new ephemeral worker pod for every research execution;
-- fixed image, command, resource policy, and runtime privileges controlled by HearthAI;
-- no Kubernetes service-account token or Kubernetes API access;
-- no host mounts, private volumes, browser sessions, or durable filesystem;
-- no provider credentials in the worker;
-- no network path to private, local, cluster, or cloud-metadata destinations, including redirects;
-- bounded search, fetch, model use, runtime, and result size;
-- cleanup of short-lived execution artifacts according to retention policy.
+What it does buy:
+
+- **Network position.** The fetch leaves the `open-webui` pod, which holds an OIDC client
+  secret, a LiteLLM key, a session-signing key, and a durable volume, and moves to a
+  stateless process holding only its own tokens and the search key.
+- **A place to neutralise content** before anything reads it.
+- **An enforceable claim.** With both hooks brokered, `open-webui` never opens an
+  outbound connection to a page, so containment is checkable at the network layer rather
+  than asserted here.
+
+Note that OpenWebUI's own loader already defends against SSRF, including connect-time
+address revalidation. `hearthfetch` implements its own fetch policy because it is now the
+one connecting — parity and defence in depth, not a gap being closed.
+
+### Isolation
+
+- no durable state, volume, or cache;
+- no Kubernetes API access or service-account token;
+- no path to `hearthmem`, LiteLLM, or cluster services;
+- no JavaScript execution or headless browser — a JS engine is the parser surface this
+  design exists to move away from a credentialed pod;
+- no cookies, ambient credentials, or forwarded caller headers on outbound fetches;
+- bounded response size, content type, redirect count, concurrency, and time;
+- private, loopback, link-local, cluster, and cloud-metadata destinations blocked for IPv4
+  and IPv6, validated at connect time so DNS rebinding does not slip through.
 
 ### Model-facing surface
 
-The request contains a research question, optional bounded research depth or source budget, and integration-supplied correlation. It cannot select or provide:
+There is none, directly. `hearthfetch` sits inside OpenWebUI's retrieval pipeline rather
+than being exposed as a tool, so the only model influence on it is the search query and
+the URLs OpenWebUI chooses to load. Neither endpoint accepts an image, command, namespace,
+credential, mount, timeout, or model-selection field.
 
-- worker images or commands;
-- Kubernetes objects or job configuration;
-- environment variables or credentials;
-- shell, filesystem, package, process, or Docker tools;
-- arbitrary network access.
-
-The returned research result is directly usable in conversation and contains a concise synthesis, individual findings with supporting evidence and source URLs, conflicts or uncertainty, and limitations. Failures use stable, actionable categories without exposing Kubernetes details.
+Returned documents carry sanitised text, the post-redirect URL, and the page title. There
+are no findings, citations, evidence structures, or conflict analysis — those were removed
+goals when the research framing was withdrawn, not deferred features.
 
 ### Acceptance
 
-OpenWebUI can invoke research from a normal conversation; HearthAI runs one isolated ephemeral worker and returns a validated, cited result without user-managed polling or job IDs. Direct and redirected fetches cannot reach private destinations, workers contain neither provider nor Kubernetes credentials, fetched instructions cannot silently persist or expand authority, and the model cannot access a general execution surface.
+OpenWebUI searches and loads pasted URLs entirely through `hearthfetch` while having no
+general internet egress of its own. Every adversarial corpus payload — hidden text, HTML
+comments, attribute and `<meta>` payloads, Unicode tag smuggling, bidi overrides — is
+absent from what reaches a model context, while legitimate visible text survives. Fetches
+fail closed against private destinations including under rebinding. Per-URL failures are
+omitted and logged rather than failing the conversation. No page content, URL, or query
+becomes a metric label.
 
 ## 0.4 — Governed MCP
 
@@ -298,7 +319,7 @@ flowchart LR
     BRIDGE --> TOOLS
 ```
 
-MCP is introduced only after the web-research release establishes isolation, provenance, and approval rules. Tool output is untrusted and cannot silently write shared memory.
+MCP is introduced only after the 0.3 release establishes isolation, untrusted-content handling, and approval rules. Tool output is untrusted and cannot silently write shared memory.
 
 ## Current repository state
 
@@ -319,7 +340,7 @@ MCP is introduced only after the web-research release establishes isolation, pro
 - Authentik OIDC integration;
 - LiteLLM configuration;
 - OpenWebUI binding for the shared-memory service;
-- `ai-jobs` control plane, web-research worker, and OpenWebUI integration;
+- `hearthfetch` and its OpenWebUI integration;
 - governed MCP configuration.
 
 ## Deferred architecture
@@ -347,8 +368,12 @@ These decisions follow evidence from 0.1 and 0.2.
 | LiteLLM inference boundary | Approved for 0.1 |
 | HearthAI shared-memory skill/service | Approved for 0.2 |
 | Capability-token sharing | Approved starting model; scope/revocation still open |
-| `ai-jobs` for delegated web research | Approved for 0.3 |
-| Ephemeral Kubernetes worker per execution | Approved for 0.3 |
+| `hearthfetch` as the broker for all OpenWebUI page fetches | Approved for 0.3 |
+| OpenWebUI `external` loader/search hooks as the integration surface | Approved for 0.3 |
+| Stateless service — no runs, storage, or per-request Job | Approved for 0.3 |
+| Research synthesis, citations, provenance | Removed 2026-09-07; not deferred |
+| Ephemeral Kubernetes worker per execution | Withdrawn 2026-09-07 with the research framing |
+| JavaScript execution or headless browsing in the broker | Excluded from 0.3 |
 | General shell or user-configurable job execution | Excluded from 0.3 |
 | OpenWebUI native MCP | Approved integration surface for 0.4, subject to governance |
 | Personal memory migration to HearthAI | Unresolved |
