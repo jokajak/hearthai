@@ -39,9 +39,14 @@ jobs:
           python-version: "3.13"
           enable-cache: true
       - name: Test control-plane contracts
-        run: uv run --project service/ai_jobs --extra test python -m pytest -q
+        # Run from the package root so pytest honours that project's testpaths
+        # instead of sweeping the whole repository into an environment that was
+        # only built for this package.
+        working-directory: service/ai_jobs
+        run: uv run --extra test python -m pytest -q
       - name: Test worker contract fixtures
-        run: uv run --project service/web_research_worker --extra test python -m pytest -q
+        working-directory: service/web_research_worker
+        run: uv run --extra test python -m pytest -q
 
   image:
     name: build image
