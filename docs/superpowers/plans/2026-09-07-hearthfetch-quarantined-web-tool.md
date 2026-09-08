@@ -84,18 +84,20 @@ not values.**
 That closes the channel for the search path entirely, which is the path an attacker can
 actually steer the user onto.
 
-**The pasted-URL path is the residual.** `fetch_url` accepting a literal URL reopens the
-channel, because the model can compose one from prose. Mitigations, in order:
+**Decided 2026-09-08: there is no literal-URL tool.** An earlier revision kept a
+`fetch_url` taking a model-composed URL, defaulted off. It is removed outright — a
+capability behind a flag is one that gets turned on later without the threat analysis that
+made it dangerous. No mitigation on a literal URL is complete anyway: stripping the query
+string still leaves path segments and subdomains carrying data.
 
-- strip query string and fragment from any model-supplied literal URL — kills the easiest
-  data-carrying channel while leaving ordinary pages working;
-- log every outbound destination; alert on hosts not seen before;
-- cap URL length and reject high-entropy path segments.
+With it gone the channel this section opened is **closed, not narrowed**. The model can
+redeem only handles a search issued; it can never name a destination.
 
-None of these is complete: path segments and subdomains still carry data. Recorded as
-accepted residual risk, with the note that **an owner who wants the channel fully closed
-disables `fetch_url` and keeps only search-derived handles.** That is a supported
-configuration, not a hypothetical.
+The cost is pasted URLs. Someone dropping a link into chat cannot have it fetched, since
+OpenWebUI's own retrieval is disabled and `open-webui` has no egress. The practical answer
+is to search for it — a search on the URL string usually surfaces the page itself, and that
+route goes through the same boundary. Revisit only if that proves annoying in real use, and
+revisiting means a new threat analysis, not flipping a flag.
 
 ## Threat model
 
@@ -128,7 +130,8 @@ has no comparable guarantee and no benchmark. It closes the markdown-render exfi
 channel and, via handles, the search-derived tool-call channel. The prose channel is
 narrowed by step ④ rather than closed — a sufficiently subtle injection reads as ordinary
 content and passes. It leaves open: subtle prose influencing the privileged model,
-literal-URL tool calls when `fetch_url` is enabled, and renderer sinks other than markdown.
+and renderer sinks other than markdown. The tool-call channel is closed outright: handles,
+and no tool that accepts a URL.
 
 ## Decisions That Must Remain True
 
@@ -149,15 +152,16 @@ literal-URL tool calls when `fetch_url` is enabled, and renderer sinks other tha
 5. **Assume the sanitiser is public.** It is AGPL-3.0 and the techniques are published;
    security cannot rest on the attacker not knowing the rules.
 6. **The model authors prose; the service authors every URL.**
-7. **Search results are handles, not URLs.** The privileged model manipulates references.
+7. **Search results are handles, not URLs, and no tool accepts a URL.** The privileged
+   model manipulates references and can never name a destination.
 8. **Output validation fails closed.** Anything URL-shaped surviving the scrub drops the
    document. Repair invites bypass.
 9. **HearthAI owns this contract.** This reverses the previous revision: implementing
    OpenWebUI's `external` hook meant taking their schema, but a tool server means we
    publish an OpenAPI spec and own it. Versioned, and narrow by construction.
-10. **Two or three tools, no orchestrator.** `search_web`, `fetch_result`, and optionally
-   `fetch_url`. No combined `research()` — that is the withdrawn product returning by the
-   back door.
+10. **Two tools, no orchestrator.** `search_web` and `fetch_result`. No combined
+   `research()` — that is the withdrawn product returning by the back door — and no
+   literal-URL tool.
 11. **Stateless.** No run records, no registry, no idempotency keys, no durable storage, no
    per-request Kubernetes object. Handles are signed, not stored.
 12. **No JavaScript execution.** No headless browser.
@@ -182,11 +186,9 @@ POST /v1/tools/search_web
 POST /v1/tools/fetch_result
   → {"handle": "hf1.…", "question": "…"}
   ← {"content": "…", "title": "…"}          # prose only, no URLs
-
-POST /v1/tools/fetch_url            # optional; disable to close the composed-URL channel
-  → {"url": "https://…", "question": "…"}
-  ← {"content": "…", "title": "…"}
 ```
+
+There is no third tool. No request type accepts a URL, and no configuration can add one.
 
 - Snippets are attacker-influenced text: they pass through ① and ③ before being returned.
   Self-hosting SearXNG changes nothing about that — an attacker who ranks for a query
@@ -196,7 +198,7 @@ POST /v1/tools/fetch_url            # optional; disable to close the composed-UR
   per search, on text far too short to distil. The consequence, recorded rather than
   hidden: the known bare-host gap in ③ has no layer behind it for snippets, so a path-less
   `evil.zz` in a snippet reaches the privileged model. Low severity — reaching a sink from
-  it needs `fetch_url` enabled, which is off by default for exactly this kind of reason —
+  it, the model would have to compose a URL and no tool accepts one —
   and revisit if snippet abuse ever shows up in practice.
 - A result whose **title** cannot be scrubbed safely is dropped: the title is how a person
   recognises a result. A result whose **snippet** cannot be is returned with the snippet
@@ -552,19 +554,18 @@ survives, and the verdict channel carries one bit.
 
 Bearer auth, body and time limits, `/healthz` and `/readyz` distinguished. Search adapter
 holds the provider credential, mints handles, scrubs snippets through ① and ③, returns an
-empty result set on provider failure. `fetch_url` behind a config flag, default decided in
-open decisions, with query and fragment stripped and destinations logged.
+empty result set on provider failure. Assert no request type accepts a URL, so a
+literal-URL tool cannot be reintroduced by accident.
 
 **Acceptance:** fake provider and fake model drive all tools end to end.
 
 ### Task 9: Observability
 
 Counters for fetches by outcome, strip-rule hits, **source rejections by reject-class rule**,
-**output-scrub drops**, **classifier rejections**, blocked destinations, and `fetch_url` calls
-by host. Source rejections
+**output-scrub drops**, **classifier rejections**, and blocked destinations. Source rejections
 are both a security signal and the false-positive alarm — a sustained rise after a rule change
 means the detector has started eating the ordinary web. Histograms for fetch, distil, scrub duration.
-Output-scrub drops and novel `fetch_url` hosts are the security signals — both alertable.
+Output-scrub drops and classifier rejections are the security signals — both alertable.
 Assert URLs, queries, questions, page content, distillations, tokens, and user identifiers
 never become metric labels or ordinary log fields.
 
@@ -598,11 +599,13 @@ release guarantees stay green.
   — the URL-attachment flow, YouTube transcripts, avatar and image fetches — fail closed
   rather than quietly working. Two known breakages to handle deliberately: OIDC needs a path
   to Authentik, and OpenWebUI downloads its embedding model on first boot.
-  A matching policy on `hearthfetch`: internet egress, DNS, and LiteLLM; ingress from
-  `open-webui` only; no path to `hearthmem` or the Kubernetes API.
-- Bitwarden items for the tool bearer token, the handle-signing key, the search-provider
-  key, and a **budgeted LiteLLM virtual key**.
-- Metrics scraping, with alerts on output-scrub drops and novel `fetch_url` hosts.
+  A matching policy on `hearthfetch`: internet egress, DNS, LiteLLM, and SearXNG; ingress
+  from `open-webui` only; no path to `hearthmem` or the Kubernetes API. SearXNG in turn
+  admits only `hearthfetch`, since its JSON API has no authentication of its own.
+- Bitwarden items for the tool bearer token, the handle-signing key, SearXNG's
+  `secret_key`, and a **budgeted LiteLLM virtual key**. No search-provider API key exists:
+  SearXNG is self-hosted and unauthenticated, so reachability is its access control.
+- Metrics scraping, with alerts on output-scrub drops and classifier rejections.
 
 ### Sink-side hardening this service cannot do
 
@@ -623,14 +626,15 @@ ordinary chat stream, and no documented setting for that was found. Revisit on e
 | Distillation | Bounded output/time/concurrency, budget exhaustion, question cannot alter policy, **no raw-text fallback on any path** |
 | Output scrub | Full corpus produces no surviving URL; fail-closed drops; fixed-point evasion; property test |
 | Classifier | Injected-distillation corpus caught, legitimate instructional content survives, verdict is a closed enum with no free text, failure rejects |
-| Service | Auth, typed failures, provider outage, `fetch_url` disabled path |
-| Observability | Cardinality and redaction assertions; drop and novel-host metrics emitted |
+| Service | Auth, typed failures, provider outage, **no request type accepts a URL** |
+| Observability | Cardinality and redaction assertions; drop and rejection metrics emitted |
 | End to end | A real question through OpenWebUI, with native web search off and `open-webui` egress denied |
 
 ## Explicit Non-Goals
 
 - research synthesis, findings, citations, provenance, or conflict detection;
 - a combined `research()` orchestrator tool;
+- any tool that accepts a URL from the model;
 - a job runner, run lifecycle, run registry, or per-request Kubernetes Job;
 - durable state, caching, or JavaScript execution;
 - PDF or other binary content in the first increment;
@@ -646,9 +650,8 @@ ordinary chat stream, and no documented setting for that was found. Revisit on e
    (`HEARTHFETCH_DISTILLER_MODEL`, `HEARTHFETCH_CLASSIFIER_MODEL`) and independently set, so
    this is a deployment value rather than a code change. Defaults are `gpt-5.4-mini` for
    both; the distiller may warrant something stronger.
-3. **Ship `fetch_url` at all?** Enabled, it supports pasted URLs and leaves the composed-URL
-   channel partly open. Disabled, the boundary is tight and pasted URLs are unsupported.
-   Recommendation: ship it disabled, enable if the absence proves annoying.
+3. ~~Ship `fetch_url` at all?~~ **Decided 2026-09-08: no.** Removed rather than defaulted
+   off; pasted URLs are unsupported, and searching for the URL is the workaround.
 4. Handle expiry, and whether a handle is single-use.
 5. Which model backs the classifier, and does it run on every document or only when a cheap
    heuristic trips? Recommendation: always, on a small fast model — the input is a short
@@ -666,8 +669,8 @@ ordinary chat stream, and no documented setting for that was found. Revisit on e
 - OpenWebUI's native web search is off and `open-webui` has no general internet egress;
 - no raw page text reaches the privileged context on any path, success or failure;
 - no URL appears in any tool response, proven by corpus and property test;
-- the privileged model cannot reach a destination of its own choosing through
-  `fetch_result`, proven by handle tests;
+- the privileged model cannot reach a destination of its own choosing at all: handle tests
+  prove `fetch_result` cannot be steered, and no tool accepts a literal URL;
 - the fetch policy fails closed against the adversarial suite;
 - no page content, URL, query, question, or distillation appears in a metric label;
 - `hearthmem` behaviour and release guarantees are unchanged; and

@@ -166,9 +166,9 @@ def test_a_path_less_host_on_an_unlisted_tld_survives_in_a_snippet():
     results would mean five classifier calls per search, for text far too short
     to distil. So a bare `evil.zz` in a snippet reaches the privileged model.
 
-    Low severity and recorded rather than hidden: the model would have to
-    compose a URL from it and then reach a sink, which means `fetch_url`
-    enabled, and that is off by default for this exact reason.
+    Low severity and recorded rather than hidden: to reach a sink the model
+    would have to compose a URL from it, and there is no tool that accepts one.
+    What remains is the renderer, which needs a scheme the scrub removes.
     """
     results = search_web(
         "q", 5,

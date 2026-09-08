@@ -1,9 +1,9 @@
 import pytest
 
+import hearthfetch.contracts as contracts_module
 from hearthfetch.contracts import (
     ContractError,
     FetchResultRequest,
-    FetchUrlRequest,
     SearchRequest,
     ToolFailure,
     FailureCode,
@@ -43,10 +43,6 @@ def test_no_request_accepts_an_infrastructure_shaped_field(field):
         SearchRequest.from_dict({"query": "x", field: "anything"})
     with pytest.raises(ContractError):
         FetchResultRequest.from_dict({"handle": "h", "question": "q", field: "anything"})
-    with pytest.raises(ContractError):
-        FetchUrlRequest.from_dict(
-            {"url": "https://example.org", "question": "q", field: "anything"}
-        )
 
 
 def test_fetch_result_requires_both_fields():
@@ -68,3 +64,18 @@ def test_non_object_and_non_string_payloads_are_refused():
 def test_failure_serialises_without_leaking_internals():
     body = ToolFailure(FailureCode.SOURCE_REJECTED, "source rejected").to_dict()
     assert body == {"error": {"code": "source_rejected", "message": "source rejected"}}
+
+
+def test_no_request_type_accepts_a_url():
+    """There is no literal-URL tool, and no request type that could become one.
+
+    A model-composed URL would be an outbound request to a destination chosen
+    from attacker-influenced prose. Handles exist so the model manipulates
+    references instead, and this asserts nothing quietly reintroduces the
+    literal form.
+    """
+    assert not hasattr(contracts_module, "FetchUrlRequest")
+    with pytest.raises(ContractError):
+        FetchResultRequest.from_dict(
+            {"handle": "h", "question": "q", "url": "https://evil.example/collect"}
+        )

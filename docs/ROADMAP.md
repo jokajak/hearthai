@@ -167,8 +167,8 @@ from legitimate content.
 
 ### Delivered as tools
 
-`search_web`, `fetch_result`, and optionally `fetch_url`, published as an OpenAPI tool
-server. HearthAI owns this contract. There is no combined `research()` orchestrator — that
+`search_web` and `fetch_result`, published as an OpenAPI tool server. HearthAI owns this
+contract. There is no combined `research()` orchestrator — that
 is the withdrawn product returning by the back door.
 
 A tool means the model supplies the question, so distillation is question-directed. It also
@@ -178,8 +178,10 @@ survives URL scrubbing, and the model can act on it.
 
 Hence **search results are opaque HMAC-signed handles, not URLs** — the privileged model
 manipulates references, not values, so for every search-derived page it never sees, holds,
-or composes a URL. `fetch_url` accepting a literal URL is the residual, and shipping it is
-an open decision.
+or composes a URL. And there is **no literal-URL tool at all**: it was removed rather than
+defaulted off, because a capability behind a flag is one that gets turned on later without
+the threat analysis that made it dangerous. The cost is pasted URLs, whose workaround is to
+search for them.
 
 ### Two decisions that carry the design
 
@@ -214,7 +216,7 @@ an open decision.
   the same path;
 - typed failures rather than page text on every error path;
 - aggregate metrics without URL, query, question, content, or user labels, with output-scrub
-  drops and novel `fetch_url` hosts as alertable security signals.
+  drops and classifier rejections as alertable security signals.
 
 ### Deliberately not included
 
@@ -307,7 +309,7 @@ These are introduced only if 0.2 proves capability-based shared stores valuable 
 3. How should OpenWebUI consume the shared-memory skill semantics: OpenAPI descriptions, a model prompt fragment, or both?
 4. Who owns personal memory long term? OpenWebUI is the 0.1 implementation, but permanent ownership versus future HearthAI ownership is unresolved.
 5. Which Agent Skills-compatible host proves 0.2 portability first?
-6. Which LiteLLM model backs the quarantined distiller and which the classifier, and should `fetch_url` (literal model-composed URLs) ship at all? *(Search provider resolved 2026-09-08: self-hosted SearXNG.)*
+6. Which LiteLLM model backs the quarantined distiller and which the classifier? *(Search provider resolved 2026-09-08: self-hosted SearXNG. Literal-URL tool resolved 2026-09-08: not shipped.)*
 7. Which first MCP integration is useful enough to justify 0.4?
 
 ## Paused implementation work

@@ -8,9 +8,9 @@ def test_defaults_are_safe(monkeypatch):
         if key.startswith("HEARTHFETCH_"):
             monkeypatch.delenv(key, raising=False)
     config = Config.from_env()
-    # The two decisions that matter, defaulted to the safer side.
-    assert config.fetch_url_enabled is False
     assert config.scrub_policy.css_hidden_rejects is True
+    # No literal-URL tool exists, and no setting can create one.
+    assert not hasattr(config, "fetch_url_enabled")
 
 
 def test_the_model_choice_is_configuration_not_code(monkeypatch):
@@ -34,17 +34,13 @@ def test_distiller_and_classifier_are_configured_independently(monkeypatch):
     ("false", False), ("0", False), ("no", False), ("off", False),
 ])
 def test_boolean_parsing(monkeypatch, raw, expected):
-    monkeypatch.setenv("HEARTHFETCH_FETCH_URL_ENABLED", raw)
-    assert Config.from_env().fetch_url_enabled is expected
+    monkeypatch.setenv("HEARTHFETCH_CSS_HIDDEN_REJECTS", raw)
+    assert Config.from_env().scrub_policy.css_hidden_rejects is expected
 
 
-@pytest.mark.parametrize("var", [
-    "HEARTHFETCH_FETCH_URL_ENABLED",
-    "HEARTHFETCH_CSS_HIDDEN_REJECTS",
-])
-def test_an_unparseable_boolean_fails_loudly_rather_than_defaulting(monkeypatch, var):
+def test_an_unparseable_boolean_fails_loudly_rather_than_defaulting(monkeypatch):
     """A typo must not silently disable a control."""
-    monkeypatch.setenv(var, "maybe")
+    monkeypatch.setenv("HEARTHFETCH_CSS_HIDDEN_REJECTS", "maybe")
     with pytest.raises(ValueError):
         Config.from_env()
 

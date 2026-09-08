@@ -276,8 +276,8 @@ model can then compose that URL as a tool argument.
 The answer, borrowed from CaMeL's symbolic variables: **the privileged model manipulates
 references, not values.** `search_web` returns opaque HMAC-signed handles; `fetch_result`
 takes a handle. For every search-derived page the model never sees, holds, or composes a
-URL. A literal-URL `fetch_url` tool reopens the channel and is therefore optional, shipped
-disabled by default.
+URL — and no tool accepts one, so the channel is closed rather than narrowed. The cost is
+pasted URLs, which are unsupported.
 
 ### Isolation
 
@@ -307,9 +307,9 @@ disabled by default.
 
 ### Model-facing surface
 
-Three narrow tools — `search_web`, `fetch_result`, and optionally `fetch_url` — with no
-combined orchestrator, and no image, command, namespace, credential, mount, timeout, or
-model-selection field anywhere in the contract. The question the model supplies is
+Two narrow tools — `search_web` and `fetch_result` — with no combined orchestrator, and no
+image, command, namespace, credential, mount, timeout, model-selection, or URL field
+anywhere in the contract. The question the model supplies is
 attacker-influenceable prose: bounded in length, carried as data, and unable to select a
 model, raise a budget, or alter limits.
 
@@ -329,8 +329,7 @@ and the boundary is decorative.
 Not provable security. CaMeL reports 67% of AgentDojo tasks solved with a guarantee; this has
 none comparable and no benchmark. It closes the markdown-render channel and, via handles, the
 search-derived tool-call channel. It leaves open attacker-controlled prose influencing the
-privileged model, literal-URL calls where `fetch_url` is enabled, and renderer sinks other
-than markdown.
+privileged model, and renderer sinks other than markdown.
 
 ### Acceptance
 
@@ -409,7 +408,7 @@ These decisions follow evidence from 0.1 and 0.2.
 | `hearthfetch` as the broker for all OpenWebUI page fetches | Approved for 0.3 |
 | OpenAPI tool server as the surface, not the `external` retrieval hooks | Approved 2026-09-08 |
 | Opaque signed handles instead of URLs in tool responses | Approved for 0.3 |
-| `fetch_url` accepting model-composed literal URLs | Open; recommended off by default |
+| A tool accepting model-composed literal URLs | Removed 2026-09-08; not shipped, not a flag |
 | Dual-LLM pattern: quarantined distillation between fetch and context | Approved for 0.3 |
 | Deterministic input and output scrubs as code, not prompting | Approved for 0.3 |
 | Service authors every URL; model authors prose only | Approved for 0.3 |

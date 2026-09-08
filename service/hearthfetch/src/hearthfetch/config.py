@@ -1,8 +1,10 @@
 """Deployment configuration.
 
 Every open decision is a value here rather than a code change: which model backs
-the distiller and the classifier, how aggressive the CSS-hidden rule is, and
-whether the literal-URL tool exists at all.
+the distiller and the classifier, and how aggressive the CSS-hidden rule is.
+
+Deliberately NOT configurable: whether a literal-URL tool exists. It does not,
+and no environment variable can bring it back.
 """
 
 from __future__ import annotations
@@ -55,9 +57,6 @@ class Config:
     fetch_policy: FetchPolicy = field(default_factory=FetchPolicy)
     scrub_policy: ScrubPolicy = field(default_factory=ScrubPolicy)
     litellm_base_url: str = ""
-    # Off by default. Enabled, this is the one place the privileged model
-    # composes a destination, which reopens the channel handles exist to close.
-    fetch_url_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -89,5 +88,4 @@ class Config:
                 css_hidden_rejects=_env_bool("CSS_HIDDEN_REJECTS", True),
             ),
             litellm_base_url=_env("LITELLM_BASE_URL", ""),
-            fetch_url_enabled=_env_bool("FETCH_URL_ENABLED", False),
         )

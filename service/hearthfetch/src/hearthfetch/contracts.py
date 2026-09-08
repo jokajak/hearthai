@@ -1,8 +1,15 @@
 """Wire contracts for the model-facing tools.
 
 Deliberately absent from every request type: image, command, namespace, pod,
-credential, mount, timeout, model. The privileged model chooses what to ask
-about; it never chooses how the work runs.
+credential, mount, timeout, model — and any URL. The privileged model chooses
+what to ask about; it never chooses how the work runs, and it never names a
+destination.
+
+There is no literal-URL request type. A tool taking a model-composed URL would
+be an outbound request to a destination chosen from attacker-influenced prose,
+which is the one exfiltration channel this design can close outright. It is not
+disabled behind a flag, because a capability behind a flag is one that gets
+turned on later without the threat analysis that made it dangerous.
 
 The validation helpers are lifted from the withdrawn ai_jobs package
 (383e94c:service/ai_jobs/src/ai_jobs/contracts.py) rather than rewritten.
@@ -17,7 +24,6 @@ from typing import Any, Mapping
 MAX_QUERY_CHARS = 512
 MAX_QUESTION_CHARS = 1_024
 MAX_HANDLE_CHARS = 2_048
-MAX_URL_CHARS = 2_048
 MAX_RESULTS = 10
 
 
@@ -117,27 +123,6 @@ class FetchResultRequest:
         require_exact_fields(data, {"handle", "question"}, "request")
         return cls(
             handle=require_string(data["handle"], "request.handle", MAX_HANDLE_CHARS),
-            question=require_string(data["question"], "request.question", MAX_QUESTION_CHARS),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class FetchUrlRequest:
-    """Only reachable when the deployment enables the literal-URL tool.
-
-    Enabled, this is the one place the privileged model composes a destination,
-    which is why it is optional and recommended off.
-    """
-
-    url: str
-    question: str
-
-    @classmethod
-    def from_dict(cls, value: object) -> "FetchUrlRequest":
-        data = require_object(value, "request")
-        require_exact_fields(data, {"url", "question"}, "request")
-        return cls(
-            url=require_string(data["url"], "request.url", MAX_URL_CHARS),
             question=require_string(data["question"], "request.question", MAX_QUESTION_CHARS),
         )
 
