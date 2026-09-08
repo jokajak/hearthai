@@ -16,12 +16,39 @@ where it belongs.
 already use rather than one more app to open. Personable means it is recognisably the same
 someone each time, not five stateless bots wearing one name in five channels.
 
-**Status: the shared-memory skill and service are built; the broader product is still a direction.**
+**Status: the shared-memory skill and service are built; the next work is making HearthAI a
+useful daily work surface.**
 [`docs/ROADMAP.md`](docs/ROADMAP.md) is the authoritative near-term sequence, and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) records the component boundaries. This README
 describes the longer-term shape. [`docs/SPEC.md`](docs/SPEC.md) is an older behavioral exploration;
 where these documents disagree, the roadmap and architecture documents are current. Licensed
 AGPL-3.0.
+
+## Current product priority
+
+HearthAI must first remove friction from work Josh already does: **GitHub contribution, current
+web research, and conversation organization**. Shared memory remains a differentiator, but it
+supports those workflows rather than standing ahead of them.
+
+- **Git repositories first:** HearthAI works on a repository only when Josh has explicitly authorized it
+  *and* it is selected in the GitHub App installation; removing either stops the next run. Every
+  model-callable capability runs as a profile-fixed set of short-lived sandboxed pods, and GitHub
+  PR work is the first profile used to validate that substrate. The worker gets an ephemeral
+  repository workspace but no GitHub credential; after it terminates, `ai-jobs` starts a separate
+  publisher pod that applies the worker's change artifact — without executing repository code —
+  and uses a repository-scoped installation token to create a branch, commit, and PR as
+  `hearthai[bot]`. It never merges. Every run has an immutable audit record.
+- **Web research is baseline capability:** current questions receive a bounded, cited result
+  through an isolated worker, not an unrestricted browsing or shell surface.
+- **Chats organize themselves:** a topic change detected by HearthAI at the chat boundary — not by
+  the model mid-answer — starts a clean logical conversation. The default is no inherited
+  transcript; only an explicitly selected artifact, named project/repository, or short relevant
+  task brief crosses the boundary. The boundary defaults closed, so a wrong split costs a
+  re-selected artifact rather than lost history. Earlier topics remain navigable but are not
+  silently put into the next model prompt. Presenting them that way is chat-surface behavior
+  OpenWebUI does not provide, so this is the one capability that may require relaxing the
+  near-term *no custom web UI* non-goal — through an OpenWebUI extension if one suffices,
+  otherwise by an explicit decision recorded in the roadmap.
 
 ## The shape
 
