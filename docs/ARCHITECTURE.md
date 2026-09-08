@@ -4,9 +4,16 @@
 **Roadmap:** [`ROADMAP.md`](ROADMAP.md)  
 **Design detail:** [`superpowers/specs/2026-08-30-capability-roadmap-design.md`](superpowers/specs/2026-08-30-capability-roadmap-design.md)
 
-HearthAI begins as an OpenWebUI-based chat platform, adds a portable shared-memory skill and service, then layers in delegated web research and governed MCP interoperability.
+HearthAI's immediate product boundary is a useful OpenWebUI work surface: GitHub PR work, bounded web research, and automatic topic organization. Shared memory remains a portable HearthAI capability that supports those workflows; governed MCP follows after the specific capability boundaries are exercised.
 
 Long-term personal-memory ownership is unresolved. OpenWebUI supplies personal memory in 0.1; HearthAI initially specializes in deliberately shareable memory.
+
+## Current capability priorities
+
+- **GitHub PR worker:** an isolated, fixed-purpose capability for any explicitly authorized repository. It authenticates as a dedicated HearthAI GitHub App, so GitHub records `hearthai[bot]` as the actor rather than Josh. It can only branch, change, run allowlisted checks, and open a PR; no merge authority.
+- **Web research:** a bounded, cited capability with an isolated worker; not general browsing or execution.
+- **Topic manager:** creates clean logical chats on topic shifts. By default it provides no predecessor transcript to the model; only selected artifacts, named project/repository context, or a brief relevant task summary may cross the boundary.
+- **Audit:** every consequential agent run is durably attributable to a request, agent identity, approval, repository, commits, checks, and external actor.
 
 ## Product boundaries
 
