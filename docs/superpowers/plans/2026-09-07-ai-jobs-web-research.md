@@ -6,9 +6,12 @@
 > with citations, conflicts, and limitations.
 >
 > The actual requirement is a **broker for every web fetch OpenWebUI performs**, so that
-> retrieval of untrusted pages happens away from a credentialed pod and page text is
-> neutralised before it reaches a model context. Research synthesis, provenance, and
-> citations are removed goals, not deferred ones.
+> untrusted pages are read only by a quarantined model and reach the privileged context as
+> scrubbed distillations. **Citations and provenance are removed goals; the synthesis step
+> is not.** An earlier reading of this supersession treated the worker's summarisation as
+> research cruft and dropped it. That was wrong — the summarisation is the security
+> boundary, and this document had it broadly right. What it got wrong was the framing
+> (a research product rather than a fetch boundary) and the machinery around it.
 >
 > The current plan is
 > [`2026-09-07-hearthfetch-brokered-web-fetch.md`](2026-09-07-hearthfetch-brokered-web-fetch.md).
@@ -16,10 +19,13 @@
 > `service/web_research_worker/`) has been removed; recover it from git history at
 > `383e94c` if needed.
 >
-> Retained as historical context for why the control-plane machinery was dropped. Two
+> Retained as historical context for why the control-plane machinery was dropped. Three
 > things here remain correct and were carried forward: the fetch-policy requirements in
-> Task 5, and Decision 7 — web content is evidence, not authority — which was the only
-> genuinely anti-injection decision in this document.
+> Task 5; Decision 7 — web content is evidence, not authority; and the worker's isolated
+> synthesis, which turns out to be the dual-LLM pattern and is now the centre of the
+> design. What was genuinely unnecessary is the orchestration: the run registry, lifecycle
+> state machine, idempotency keys, run tokens, worker protocol, and Job-per-run executor,
+> all of which existed to run an autonomous loop that the current design does not have.
 
 > **Planning only.** This document defines the implementation sequence for the first
 > HearthAI tool. It does not authorize implementing a general job runner or the future

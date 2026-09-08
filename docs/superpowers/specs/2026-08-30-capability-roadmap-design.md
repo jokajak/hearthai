@@ -183,7 +183,7 @@ The model may propose a write but may not perform one autonomously.
 
 ## 0.3 — Sandboxed web search and fetch
 
-> **Superseded for 0.3:** The Open Terminal approach below is retained as historical design context. It was briefly replaced by an [`ai-jobs` web-research plan](../plans/2026-09-07-ai-jobs-web-research.md), which was itself withdrawn on 2026-09-07 for specifying the wrong capability. The current implementation direction is the [`hearthfetch` brokered-web-fetch plan](../plans/2026-09-07-hearthfetch-brokered-web-fetch.md): HearthAI brokers *all* of OpenWebUI's page fetches and sanitises what it returns. Note that 0.3 is no longer a model-facing `search_web`/`fetch_url` tool pair at all — it sits inside OpenWebUI's retrieval pipeline.
+> **Superseded for 0.3:** The Open Terminal approach below is retained as historical design context. It was briefly replaced by an [`ai-jobs` web-research plan](../plans/2026-09-07-ai-jobs-web-research.md), which was itself withdrawn on 2026-09-07 for specifying the wrong capability. The current implementation direction is the [`hearthfetch` plan](../plans/2026-09-07-hearthfetch-brokered-web-fetch.md): HearthAI brokers *all* of OpenWebUI's page fetches, reads them with a quarantined model holding no tools or context, and returns deterministically-scrubbed distillations — the dual-LLM pattern. Note that 0.3 is no longer a model-facing `search_web`/`fetch_url` tool pair at all — it sits inside OpenWebUI's retrieval pipeline.
 
 ### Purpose
 
