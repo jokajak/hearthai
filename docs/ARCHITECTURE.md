@@ -19,7 +19,7 @@ Long-term personal-memory ownership is unresolved. OpenWebUI supplies personal m
 
 ## Execution substrate
 
-The **execution control plane** is a distinct HearthAI component. It admits typed,
+The **`ai-jobs` control plane** is HearthAI's distinct execution substrate. It admits typed,
 model-callable capability requests, evaluates HearthAI authorization, selects a fixed reviewed
 worker profile, creates one ephemeral sandboxed pod, and records the run audit. It is never a
 general Kubernetes Job API: callers cannot choose an image, command, environment, mount,
@@ -30,13 +30,18 @@ or ambient credentials. It has a read-only root filesystem except for explicit e
 workspaces and fixed profile egress. Initial profiles do not expose generic tools to a model.
 They contain only the machinery needed for that profile.
 
-**GitHub PR work is the first profile and the validation vehicle.** A repository-materializer
-init container fetches the authorized repository/ref to an ephemeral workspace. The sandboxed
-worker can modify that workspace and run repository-controlled checks; those checks are
-untrusted code and receive the same sandbox, resource, filesystem, and egress limits. A separate
-fixed publisher receives a short-lived installation token scoped to that repository and performs
-only branch/commit/PR operations as `hearthai[bot]`. The worker receives no GitHub credential;
-the GitHub App private key remains outside every pod.
+**GitHub PR work is the first profile and the validation vehicle.** A repository-materializer init container uses a short-lived, read-only token to fetch the
+authorized repository/ref to an ephemeral workspace, then removes the token, Git credential
+configuration, and `.git` before the worker starts (unless a fixed profile demonstrably requires
+history). The sandboxed worker can modify that workspace and run repository-controlled checks;
+those checks are untrusted code and receive the same sandbox, resource, filesystem, and egress
+limits. When the worker terminates, `ai-jobs` captures its change artifact and starts a **separate
+publisher pod**, never a sidecar. The publisher refetches the repository, applies that artifact
+without executing repository code, and receives a short-lived write-scoped installation token to
+perform only branch/commit/PR operations as `hearthai[bot]`. The worker cannot reach the
+publisher over localhost or a shared volume. Commit content remains worker-controlled by design;
+containment is the branch, lack of merge authority, separate publisher, and audit. The GitHub App
+private key remains outside every pod.
 
 ## Product boundaries
 
@@ -119,10 +124,9 @@ flowchart TB
 | **Shared-memory skill** | Store discovery, recall, record preparation, approval rules, service calls, honest failures | Browser UI, personal memory, fetch, MCP |
 | **OpenWebUI shared-memory adapter** | Exposing the shared-memory contract as OpenWebUI tools and descriptions | Redefining stores or access |
 | **Shared-memory service** | Store lifecycle, capability access, records, retrieval, audit, export | OpenWebUI account or personal-memory data |
-| **`ai-jobs` control plane** | Research request validation, authorization, execution state, fixed Kubernetes Job lifecycle, result delivery, health, and metrics | General job execution, user-facing job administration, or model-selected runtime configuration |
-| **Web-research worker** | One bounded research loop, source evaluation, and a structured cited result | Durable state, provider or Kubernetes credentials, general shell access, or shared-memory writes |
-| **Execution control plane** | Typed capability admission, HearthAI authorization, fixed worker-profile selection, ephemeral pod lifecycle, and durable run audit | General job execution or model-selected pod configuration |
-| **GitHub PR profile** | Ephemeral repository workspace, sandboxed repository checks, fixed publish path as `hearthai[bot]` | Direct use of the App private key, merge authority, or arbitrary repository access |
+| **`ai-jobs` control plane** | Typed capability admission, HearthAI authorization, profile selection, execution state, fixed Kubernetes Job lifecycle, result delivery, durable run audit, health, and metrics | General job execution, user-facing job administration, or model-selected runtime configuration |
+| **Worker profile** | One bounded capability-specific worker contract, including sandbox, workspace, and output artifact rules | A general shell or caller-selected tools, image, or pod configuration |
+| **GitHub PR profile** | Ephemeral repository workspace, sandboxed repository checks, separate publish pod as `hearthai[bot]` | Direct use of the App private key, merge authority, arbitrary repository access, or worker-to-publisher access |
 | **MCP boundary** | Approved servers/tools, scoped credentials, audit, approvals | Bypassing sandbox or memory approval |
 
 ## Deployment ownership
@@ -353,7 +357,7 @@ MCP is introduced only after the web-research release establishes isolation, pro
 - Authentik OIDC integration;
 - LiteLLM configuration;
 - OpenWebUI binding for the shared-memory service;
-- `ai-jobs` control plane, web-research worker, and OpenWebUI integration;
+- `ai-jobs` execution substrate, worker-profile framework, GitHub PR profile, and OpenWebUI integration;
 - governed MCP configuration.
 
 ## Deferred architecture
