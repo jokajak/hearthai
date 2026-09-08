@@ -224,18 +224,29 @@ detector is therefore split by the question *would a legitimate publisher ever d
   are simply not extracted;
 - whitespace runs.
 
-**Reject-class** — essentially never legitimate, and any single hit discards the source:
+**Reject-class** — no legitimate use, and any single hit discards the source:
 
 - characters from the Unicode Tag block (U+E0000–U+E007F), which exist to smuggle invisible
   ASCII and have no legitimate use in page text;
 - bidi override characters (U+202A–U+202E, U+2066–U+2069) in a document that is not
   genuinely bidirectional;
-- zero-width characters (U+200B–U+200D, U+FEFF) appearing *inside* words rather than at
-  legitimate break points;
-- text rendered invisible by adversarial means rather than structural ones — zero or
-  near-zero font size, `opacity:0`, off-screen absolute positioning, foreground matching
-  background;
+- zero-width characters (U+200B–U+200D, U+FEFF) appearing *inside* words, between two ASCII
+  alphanumerics — the constraint that keeps Indic scripts and emoji ZWJ sequences out of it;
 - any of the above discovered *after* a first normalisation pass; see below.
+
+**CSS-hidden — a policy dial, not a certainty.** An earlier draft listed `opacity:0`,
+zero font size, and off-screen positioning here as "essentially never legitimate". That was
+wrong, and implementation measured it: the classic screen-reader-only pattern is
+`position:absolute;left:-9999px`, a CSS fade-in starts at `opacity:0`, a lazy-loaded image
+placeholder is `opacity:0`, and the inline-block whitespace hack is `font-size:0`. All four
+would be rejected.
+
+So `css_hidden_rejects` is configurable, defaulting to reject — a discarded page costs an
+answer and an admitted one costs more — with the collisions in a corpus so the price is
+visible in test output rather than discovered in production. Two refinements recover most of
+it: `opacity:0` alongside a `transition` or `animation` is a fade-in and is not treated as
+hiding, and `font-size:0` suppresses only an element's *own* text rather than its subtree,
+because children commonly reset it and dropping the subtree deletes real content.
 
 ### Two-pass, to a fixed point — and non-idempotence is itself a signal
 
@@ -296,6 +307,14 @@ raw HTML tags; control, zero-width, and bidi characters; anything past the lengt
 
 **Then assert, and fail closed:** no URL-shaped substring may survive. If one does, drop the
 document rather than repair it.
+
+**What is complete and what is best-effort**, since the difference matters more than the
+rules. Complete: schemed URLs, scheme-relative URLs, markdown link and image syntax,
+reference definitions, angle autolinks, raw HTML tags, `data:`/`javascript:`/`file:`/
+`mailto:`, and any dotted host carrying a path — every form a model can turn into a request.
+Best-effort: a *path-less* bare hostname on an unlisted TLD (`evil.zz`). Completeness there
+needs the full IANA list, which then rejects `deploy.sh`, `notes.md`, and `archive.zip`.
+Left best-effort deliberately — stage ④ is the layer that sees a destination named in prose.
 
 **Same fixed-point discipline as ①.** Strip repeatedly until the output stops changing, and
 re-run the assertion on each pass — `htt<b>p</b>s://` and zero-width-split URLs are the same
