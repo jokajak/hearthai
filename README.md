@@ -27,7 +27,7 @@ AGPL-3.0.
 
 HearthAI must first remove friction from work Josh already does: **GitHub contribution, current web research, and conversation organization**. Shared memory remains a differentiator, but it supports those workflows rather than standing ahead of them.
 
-- **GitHub first:** HearthAI works on any repository Josh explicitly authorizes. It creates a branch, makes and validates changes within a fixed policy, and opens a PR; it does not merge. A dedicated GitHub App acts with an unmistakable `hearthai[bot]` identity, never as Josh. Every agent run is linked to an internal immutable audit record.
+- **GitHub first:** HearthAI works on any repository Josh explicitly authorizes. Every model-callable capability runs in a fixed, ephemeral sandboxed pod; GitHub PR work is the first profile used to validate that substrate. Its worker gets an ephemeral repository workspace but no GitHub credential; a separate fixed publisher uses a repository-scoped installation token to create a branch, commit, and PR as `hearthai[bot]`. It never merges. Every run has an immutable audit record.
 - **Web research is baseline capability:** current questions receive a bounded, cited result through an isolated worker, not an unrestricted browsing or shell surface.
 - **Chats organize themselves:** a confidently detected topic change starts a clean logical conversation. The default is no inherited transcript; only an explicitly selected artifact, named project/repository, or short relevant task brief crosses the boundary. Earlier topics remain navigable but are not silently put into the next model prompt.
 
