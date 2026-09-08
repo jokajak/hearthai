@@ -1,7 +1,7 @@
 # HearthAI Roadmap
 
 **Status:** authoritative capability roadmap<br>
-**Last updated:** 2026-09-07<br>
+**Last updated:** 2026-09-08<br>
 **Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)<br>
 **Design detail:** [`superpowers/specs/2026-08-30-capability-roadmap-design.md`](superpowers/specs/2026-08-30-capability-roadmap-design.md)
 
