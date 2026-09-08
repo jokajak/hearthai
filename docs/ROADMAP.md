@@ -11,9 +11,9 @@ This section supersedes the earlier *Direction*, numbered ordering, and 0.1 excl
 
 HearthAI's first proof of value is a useful OpenWebUI work surface, not an isolated memory experiment. The delivery order is:
 
-1. **GitHub PR work first:** support any repository Josh explicitly authorizes. Use a dedicated HearthAI GitHub App and installation tokens so GitHub activity is visibly attributable to `hearthai[bot]`, never Josh. The agent may create a branch, make changes, run fixed validation, and open a pull request; it cannot merge. Each run has a durable internal audit record that identifies the request, agent, approval, repository, commits, and checks.
+1. **GitHub PR work first:** support any repository that carries both an explicit HearthAI authorization record and a GitHub App installation selection. A dedicated HearthAI GitHub App and short-lived installation tokens make GitHub activity attributable to `hearthai[bot]`, never Josh. The agent may create a branch, make changes, run the repository's own checks, and open a pull request; it cannot merge. Those checks are repository-controlled code, so what contains them is the sandbox described in *Execution substrate* below, not an allowlist of check names. The `ai-jobs` control plane owns the durable run audit.
 2. **Bounded web research:** make current, source-backed research available from the same chat surface through an isolated, fixed-purpose worker. It is not a generic executor.
-3. **Automatic topic organization:** topic changes create a clean logical conversation by default. Preserve no transcript unless an explicit artifact, named project/repository, or short relevant task brief is selected. Old topics remain linked for navigation but do not contaminate the next prompt.
+3. **Automatic topic organization:** topic changes create a clean logical conversation by default. Detection belongs to a HearthAI topic manager at the chat boundary, not to the answering model, and the boundary defaults closed: a false split costs a re-selected artifact, never lost history. Preserve no transcript unless an explicit artifact, named project/repository, or short relevant task brief is selected. Old topics remain linked for navigation but do not contaminate the next prompt. Presenting split topics as navigable is chat-surface behavior OpenWebUI does not provide, so this is the one capability that may require relaxing the *Direction* non-goal of building no custom web UI — through an OpenWebUI extension if one suffices, otherwise by an explicit recorded decision.
 4. **Shareable memory:** integrate the existing skill and service where it improves these workflows. Sharing remains deliberate and shared writes still require approval.
 5. **Governed MCP and richer household identity:** follow only after the above boundaries have real-world evidence.
 
@@ -21,30 +21,40 @@ OpenWebUI remains the browser surface and its native memory remains the near-ter
 
 ### Execution substrate
 
-Every model-callable capability runs in one short-lived, sandboxed Kubernetes pod. The `ai-jobs` control plane accepts only a typed request and selects a reviewed worker
-profile; it is not a general job API. A run has no durable filesystem, no Kubernetes API access, no service-account token, and no
-ambient credentials. Its egress and resource limits are fixed by profile.
+Every model-callable capability runs as a fixed set of short-lived, sandboxed Kubernetes pods,
+each with a profile-fixed image, no durable filesystem, no Kubernetes API access, no
+service-account token, and no ambient credentials. The profile fixes how many pods a run creates,
+what each may reach, and its egress and resource limits; the caller never does. The `ai-jobs`
+control plane accepts only a typed request and selects a reviewed worker profile; it is not a
+general job API.
 
 The first worker profile is **GitHub PR work**. It validates the pod manager rather than bypassing
 it: a materializer init container uses a short-lived, read-only repository token to create an
 ephemeral workspace, removes the token and Git credential/configuration before the worker starts,
-and drops `.git` unless a fixed profile demonstrably needs it. The sandboxed worker edits and
-executes repository-controlled checks. After it terminates, `ai-jobs` starts a **separate
-publisher pod**, not a sidecar: it fetches the repository afresh, applies the worker's captured
-change artifact without executing repository code, and uses a short-lived, repository-scoped
-installation token to create the branch, commits, and PR as `hearthai[bot]`. The App private key
-never enters a pod, and no worker can reach the publisher over a shared pod network or volume.
-Commit content is worker-controlled by design; containment is the branch, lack of merge
-authority, separate publisher boundary, and audit record. No general tools are installed or
-exposed in the initial worker beyond what that fixed profile requires.
+and drops `.git` unless a fixed profile demonstrably needs it. A profile that does need history
+must receive the credential out of band — an `http.extraHeader` or an equivalent — rather than in
+the remote URL, because deleting `.git/config` keys alone leaves token residue in `FETCH_HEAD`,
+`packed-refs`, and the reflog, all readable by the untrusted check code sharing that workspace.
+The sandboxed worker edits the workspace and executes repository-controlled checks. After it
+terminates, `ai-jobs` starts a **separate publisher pod**, not a sidecar: it fetches the
+repository afresh, applies the worker's captured change artifact without executing repository
+code, and uses a short-lived, repository-scoped installation token to create the branch, commits,
+and PR as `hearthai[bot]`. The App private key never enters a pod, and no worker can reach the
+publisher over a shared pod network or volume. Commit content is worker-controlled by design;
+containment is the branch, lack of merge authority, separate publisher boundary, and audit record.
+No general tools are installed or exposed in the initial worker beyond what that fixed profile
+requires.
 
 Repository authority requires **both** an explicit HearthAI authorization record and a selected
-repository in the GitHub App installation. Removing either blocks the next run. The `ai-jobs` control plane owns the durable run audit: request, selected profile, authorization decision,
+repository in the GitHub App installation. Removing either blocks the next run. The `ai-jobs`
+control plane owns the durable run audit: request, selected profile, authorization decision,
 approval, pod identity, repository/ref, produced commits, checks, and GitHub actor.
 
 ## Earlier roadmap detail — pending rewrite
 
-Everything from **Direction** through **Session recovery** below is superseded by the correction above until it is rewritten.
+Everything from **Direction** through **Future — Richer sharing and identity** below is superseded by the correction above until it is rewritten.
+
+**Open decisions**, **Paused implementation work**, and **Session recovery** are *not* superseded. In particular, the standing instruction not to merge or resume `feat/portable-cross-host-memory` without reconciliation remains in force.
 
 ## Direction
 
@@ -284,6 +294,9 @@ These are introduced only if 0.2 proves capability-based shared stores valuable 
 5. Which Agent Skills-compatible host proves 0.2 portability first?
 6. Which search provider and bounded research defaults should `ai-jobs` use for 0.3?
 7. Which first MCP integration is useful enough to justify 0.4?
+8. How is repository authorization revoked, and what happens to a run already in flight when either the HearthAI authorization record or the GitHub App installation selection is removed?
+9. Which fixed profiles, if any, may retain `.git`, and how is credential residue shown to be absent when one does?
+10. Does the topic manager require a chat surface beyond OpenWebUI, and if so does that relax the no-custom-frontend non-goal or defer the capability?
 
 ## Paused implementation work
 
@@ -303,7 +316,7 @@ When continuing HearthAI roadmap work in a new session:
 
 1. Read this file first.
 2. Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for component boundaries.
-3. Treat `0.1 → 0.2 → 0.3 → 0.4` as authoritative ordering.
+3. Treat the **Current priority correction** as the authoritative ordering; the numbered `0.1 → 0.2 → 0.3 → 0.4` detail is pending rewrite.
 4. Do not infer a prescribed HearthAI persona for 0.1.
 5. Treat OpenWebUI personal memory as the near-term implementation, not a permanent ownership decision.
 6. Treat HearthAI 0.2 as shareable-memory skill and service work, not personal-memory replacement.
