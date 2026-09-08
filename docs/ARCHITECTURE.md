@@ -15,6 +15,29 @@ Long-term personal-memory ownership is unresolved. OpenWebUI supplies personal m
 - **Topic manager:** creates clean logical chats on topic shifts. By default it provides no predecessor transcript to the model; only selected artifacts, named project/repository context, or a brief relevant task summary may cross the boundary.
 - **Audit:** every consequential agent run is durably attributable to a request, agent identity, approval, repository, commits, checks, and external actor.
 
+
+
+## Execution substrate
+
+The **execution control plane** is a distinct HearthAI component. It admits typed,
+model-callable capability requests, evaluates HearthAI authorization, selects a fixed reviewed
+worker profile, creates one ephemeral sandboxed pod, and records the run audit. It is never a
+general Kubernetes Job API: callers cannot choose an image, command, environment, mount,
+credential, network policy, resource limit, or service account.
+
+A pod begins with no durable state, host mounts, Kubernetes API access, service-account token,
+or ambient credentials. It has a read-only root filesystem except for explicit ephemeral
+workspaces and fixed profile egress. Initial profiles do not expose generic tools to a model.
+They contain only the machinery needed for that profile.
+
+**GitHub PR work is the first profile and the validation vehicle.** A repository-materializer
+init container fetches the authorized repository/ref to an ephemeral workspace. The sandboxed
+worker can modify that workspace and run repository-controlled checks; those checks are
+untrusted code and receive the same sandbox, resource, filesystem, and egress limits. A separate
+fixed publisher receives a short-lived installation token scoped to that repository and performs
+only branch/commit/PR operations as `hearthai[bot]`. The worker receives no GitHub credential;
+the GitHub App private key remains outside every pod.
+
 ## Product boundaries
 
 ```text
@@ -98,6 +121,8 @@ flowchart TB
 | **Shared-memory service** | Store lifecycle, capability access, records, retrieval, audit, export | OpenWebUI account or personal-memory data |
 | **`ai-jobs` control plane** | Research request validation, authorization, execution state, fixed Kubernetes Job lifecycle, result delivery, health, and metrics | General job execution, user-facing job administration, or model-selected runtime configuration |
 | **Web-research worker** | One bounded research loop, source evaluation, and a structured cited result | Durable state, provider or Kubernetes credentials, general shell access, or shared-memory writes |
+| **Execution control plane** | Typed capability admission, HearthAI authorization, fixed worker-profile selection, ephemeral pod lifecycle, and durable run audit | General job execution or model-selected pod configuration |
+| **GitHub PR profile** | Ephemeral repository workspace, sandboxed repository checks, fixed publish path as `hearthai[bot]` | Direct use of the App private key, merge authority, or arbitrary repository access |
 | **MCP boundary** | Approved servers/tools, scoped credentials, audit, approvals | Bypassing sandbox or memory approval |
 
 ## Deployment ownership
@@ -139,6 +164,8 @@ A model may recall from an available store. A shared write always requires a per
 2. the exact destination store.
 
 The model may propose; it may not silently share.
+
+> **Pending rewrite:** the following release diagram predates the execution substrate and GitHub PR profile. The current priority correction in `ROADMAP.md` is authoritative.
 
 ## Release architecture
 
@@ -365,4 +392,4 @@ These decisions follow evidence from 0.1 and 0.2.
 
 ## Session recovery
 
-Continue roadmap work from [`ROADMAP.md`](ROADMAP.md). Treat that file's 0.1–0.4 order and open decisions as authoritative. Older personal-memory implementation documents are archived context, not the current plan.
+Continue roadmap work from [`ROADMAP.md`](ROADMAP.md). Treat its **Current priority correction** and execution-substrate boundary as authoritative until the numbered milestones are rewritten. Older personal-memory implementation documents are archived context, not the current plan.
