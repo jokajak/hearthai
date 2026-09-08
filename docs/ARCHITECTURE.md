@@ -38,7 +38,7 @@ flowchart TB
     end
 
     subgraph LATER["Later governed capabilities"]
-        FETCH["0.3 hearthfetch<br/>quarantined web fetch"]
+        FETCH["0.3 hearthfetch<br/>quarantined web tools"]
         MCP["0.4 governed MCP"]
     end
 
@@ -64,7 +64,7 @@ flowchart TB
     SKILL --> SERVICE
     SERVICE --> STORE
 
-    OW -. "0.3 · all page fetches" .-> FETCH
+    OW -. "0.3 · search_web · fetch_result" .-> FETCH
     OW -. "0.4" .-> MCP
 
     classDef gateway fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#1f2937
@@ -87,12 +87,12 @@ flowchart TB
 | **Shared-memory skill** | Store discovery, recall, record preparation, approval rules, service calls, honest failures | Browser UI, personal memory, fetch, MCP |
 | **OpenWebUI shared-memory adapter** | Exposing the shared-memory contract as OpenWebUI tools and descriptions | Redefining stores or access |
 | **Shared-memory service** | Store lifecycle, capability access, records, retrieval, audit, export | OpenWebUI account or personal-memory data |
-| **`hearthfetch`** | Fetch policy, deterministic input scrub, quarantined summarisation, deterministic output scrub, brokering the search provider, and aggregate metrics | Durable state, research synthesis, citations, caching, JavaScript execution, returning raw page text, or any general execution surface |
+| **`hearthfetch` tools** | Fetch policy, deterministic input scrub, quarantined distillation, deterministic output scrub, opaque result handles, brokering the search provider, and aggregate metrics | Durable state, research synthesis, citations, caching, JavaScript execution, returning raw page text, or any general execution surface |
 | **MCP boundary** | Approved servers/tools, scoped credentials, audit, approvals | Bypassing sandbox or memory approval |
 
 ## Deployment ownership
 
-HearthAI owns `hearthfetch`'s behavior — fetch policy, the two deterministic scrubs, and the quarantined summarisation between them — plus its container image, Helm chart, and release automation. It does **not** own the wire contract: `hearthfetch` implements OpenWebUI's `external` loader and search contracts, pinned to the deployed version, so a change there is an upstream-compatibility question rather than a product decision.
+HearthAI owns `hearthfetch`'s behavior — fetch policy, the two deterministic scrubs, and the quarantined distillation between them — plus the OpenAPI tool contract, container image, Helm chart, and release automation. Delivering this as a tool server rather than through OpenWebUI's `external` retrieval hooks means HearthAI owns the contract rather than tracking someone else's schema, at the cost of the tool only firing when the model elects to call it.
 
 The separate `home-ops` repository owns cluster deployment and integration wiring: OpenWebUI's `WEB_*` configuration, secret delivery, version pins, observability, and the network policies. The isolation claim rests on those policies — default-deny egress on `open-webui` — and `hearthfetch` must never be documented as though it enforces that itself.
 
@@ -239,49 +239,51 @@ OpenWebUI and one Agent Skills-compatible host use the same named store. A host 
 ```mermaid
 flowchart LR
     OW["OpenWebUI<br/><b>privileged LLM</b><br/>conversation · memories · tools"]
-    OW -->|"external loader · external search"| HF["hearthfetch"]
+    OW -->|"search_web · fetch_result<br/>handles, not URLs"| HF["hearthfetch tools"]
     HF --> POL["Fetch policy"]
     POL -- "public HTTP(S)" --> WEB["Public web"]
     POL -- "private / local / cluster / metadata" --> DENY["Deny"]
     WEB --> S1["① deterministic input scrub"]
-    S1 --> Q["② <b>quarantined LLM</b><br/>no tools · no memory<br/>no conversation"]
-    Q --> S3["③ deterministic output scrub<br/><i>fail closed</i>"]
-    S3 -->|"prose only, no URLs"| OW
-    OW -. "denied by network policy" .-> WEB
+    S1 --> Q["② <b>quarantined LLM</b><br/>page + question<br/>no tools · no memory"]
+    Q --> S3["③ deterministic output scrub<br/><i>plain prose, fail closed</i>"]
+    S3 -->|"no URLs"| OW
+    OW -. "native search off<br/>egress denied" .-> WEB
 ```
 
-OpenWebUI's `external` loader and search engines point at `hearthfetch`, which fetches,
-scrubs, distils, scrubs again, and returns. It is stateless: a request is answered or it
-fails, with no record kept.
+`hearthfetch` is a stateless OpenAPI tool server. HearthAI owns the contract; handles are
+signed rather than stored, so statelessness survives.
 
 ### Why the boundary holds
 
 The quarantined model reads hostile text with **no private data and no way to act** — two
-of the three legs of the lethal trifecta absent by construction. A page that hijacks it
-has hijacked something that knows nothing and can do nothing.
+legs of the lethal trifecta absent by construction. A page that hijacks it has hijacked
+something that knows nothing and can do nothing.
 
-That is not sufficient on its own. The attack does not need the quarantined model to know
-anything, only to repeat something: a page asks for a markdown image with a placeholder;
-the quarantined model complies harmlessly because it cannot fill it in; the summary
-reaches the privileged model, which can; the renderer makes the request. The instruction
-is laundered through the summary into a context that holds the data.
+That is not sufficient alone. The attack does not need the quarantined model to know
+anything, only to repeat something: a page asks for a markdown image with a placeholder, the
+quarantined model complies harmlessly because it cannot fill it in, the summary reaches the
+privileged model which can, and the renderer makes the request. Hence stage ③ and the rule
+that **the model authors prose; the service authors every URL.**
 
-This is the gap between the plain dual-LLM pattern and CaMeL, whose data-flow tracking
-stops untrusted values reaching a sink. Full CaMeL is unavailable — it requires the
-privileged side to be a plan-then-interpret system, and OpenWebUI is not — so 0.3 takes
-the cheap decisive part, because HearthAI owns the only channel:
+### The cost of a tool surface
 
-> **The model authors prose; the service authors every URL.**
+Delivering this as a tool rather than inside the retrieval pipeline buys question-directed
+distillation. It also hands the privileged model an outbound verb, which is an exfiltration
+primitive: a page can describe a destination in prose that survives URL scrubbing, and the
+model can then compose that URL as a tool argument.
 
-Nothing URL-shaped survives stage ③. Anything that does causes the document to be dropped
-rather than repaired.
+The answer, borrowed from CaMeL's symbolic variables: **the privileged model manipulates
+references, not values.** `search_web` returns opaque HMAC-signed handles; `fetch_result`
+takes a handle. For every search-derived page the model never sees, holds, or composes a
+URL. A literal-URL `fetch_url` tool reopens the channel and is therefore optional, shipped
+disabled by default.
 
 ### Isolation
 
-- no tools, memory, conversation history, or credentials in the quarantined model beyond
-  its own budgeted LiteLLM key;
+- no tools, memory, conversation history, or credentials in the quarantined model beyond its
+  own budgeted LiteLLM key;
 - stages ① and ③ are deterministic code, never a prompt and never a model checking a model;
-- no durable state, volume, or cache;
+- no durable state, volume, or cache; handles are signed, not stored;
 - no Kubernetes API access or service-account token;
 - no path to `hearthmem` or cluster services;
 - no JavaScript execution or headless browser;
@@ -289,41 +291,44 @@ rather than repaired.
 - bounded response size, content type, redirect count, concurrency, and time;
 - private, loopback, link-local, cluster, and cloud-metadata destinations blocked for IPv4
   and IPv6, validated at connect time so DNS rebinding does not slip through;
-- **no fallback to raw page text on any failure path** — that would silently remove the
-  entire boundary.
+- **no fallback to raw page text on any failure path.**
 
 ### Model-facing surface
 
-There is none, directly. `hearthfetch` sits inside OpenWebUI's retrieval pipeline rather
-than being exposed as a tool, so the only model influence on it is the search query and
-the URLs OpenWebUI chooses to load. Neither endpoint accepts an image, command, namespace,
-credential, mount, timeout, or model-selection field.
+Three narrow tools — `search_web`, `fetch_result`, and optionally `fetch_url` — with no
+combined orchestrator, and no image, command, namespace, credential, mount, timeout, or
+model-selection field anywhere in the contract. The question the model supplies is
+attacker-influenceable prose: bounded in length, carried as data, and unable to select a
+model, raise a budget, or alter limits.
 
-The loader hook carries no query, so distillation there is query-blind. That is the
-accepted cost of covering every fetch including pasted URLs; a question-aware tool surface
-alongside it is an open decision.
+Responses carry a plain-prose distillation and a title. **No URL appears in any response.**
+No findings, citations, or evidence structures — removed goals when the research framing was
+withdrawn.
 
-Returned documents carry a scrubbed distillation and, in metadata, the post-redirect URL
-placed by the service. No findings, citations, or evidence structures — those were removed
-goals when the research framing was withdrawn.
+### Bypass paths must be closed
+
+A tool only fires when the model elects to call it, so OpenWebUI's native web search and
+URL-attachment flow must be off and `open-webui` must have no general internet egress.
+Without that, raw page text reaches the context by a route that passes through none of this,
+and the boundary is decorative.
 
 ### What is not claimed
 
-Not provable security. CaMeL reports 67% of AgentDojo tasks solved with a guarantee; this
-design has no comparable guarantee and no benchmark. It closes the exfiltration channel
-that exists in this stack and narrows the influence channel to attacker-controlled prose.
-The privileged model acting on false information, and renderer sinks other than markdown,
-remain open.
+Not provable security. CaMeL reports 67% of AgentDojo tasks solved with a guarantee; this has
+none comparable and no benchmark. It closes the markdown-render channel and, via handles, the
+search-derived tool-call channel. It leaves open attacker-controlled prose influencing the
+privileged model, literal-URL calls where `fetch_url` is enabled, and renderer sinks other
+than markdown.
 
 ### Acceptance
 
-OpenWebUI searches and loads pasted URLs entirely through `hearthfetch` while having no
-general internet egress of its own. No raw page text reaches the privileged context on any
-path. No URL authored by the quarantined model survives into returned content, proven by
-adversarial corpus and property test. Every input-corpus payload is removed while
-legitimate visible text survives. Fetches fail closed against private destinations
-including under rebinding. Per-URL failures are omitted and logged rather than failing the
-conversation. No page content, URL, query, or summary becomes a metric label, and
+OpenWebUI answers a current-information question entirely through `hearthfetch` tools, with
+native search off and egress denied. No raw page text reaches the privileged context on any
+path. No URL appears in any tool response, proven by corpus and property test. The privileged
+model cannot reach a destination of its own choosing through `fetch_result`, proven by handle
+forgery, expiry, and tampering tests. Every input-corpus payload is removed while legitimate
+visible text survives. Fetches fail closed against private destinations including under
+rebinding. No page content, URL, query, question, or distillation becomes a metric label, and
 output-scrub drops are observable as a security signal.
 
 ## 0.4 — Governed MCP
@@ -390,9 +395,13 @@ These decisions follow evidence from 0.1 and 0.2.
 | HearthAI shared-memory skill/service | Approved for 0.2 |
 | Capability-token sharing | Approved starting model; scope/revocation still open |
 | `hearthfetch` as the broker for all OpenWebUI page fetches | Approved for 0.3 |
-| Dual-LLM pattern: quarantined summarisation between fetch and context | Approved for 0.3 |
+| OpenAPI tool server as the surface, not the `external` retrieval hooks | Approved 2026-09-08 |
+| Opaque signed handles instead of URLs in tool responses | Approved for 0.3 |
+| `fetch_url` accepting model-composed literal URLs | Open; recommended off by default |
+| Dual-LLM pattern: quarantined distillation between fetch and context | Approved for 0.3 |
 | Deterministic input and output scrubs as code, not prompting | Approved for 0.3 |
 | Service authors every URL; model authors prose only | Approved for 0.3 |
+| Disabling OpenWebUI native web search and URL attachment | Required for 0.3 to be a boundary |
 | Raw page text as a failure fallback | Excluded — removes the boundary |
 | OpenWebUI `external` loader/search hooks as the integration surface | Approved for 0.3 |
 | Stateless service — no runs, storage, or per-request Job | Approved for 0.3 |

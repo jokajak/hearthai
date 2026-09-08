@@ -31,7 +31,7 @@ future verified users and richer sharing semantics
 | Inference | LiteLLM | Model/provider routing behind one endpoint |
 | Shared-memory behavior | HearthAI Agent Skill | When to recall, share, ask approval, and report failures |
 | Shared-memory state | HearthAI service | Stores, capability access, records, retrieval, audit |
-| Web fetch | HearthAI `hearthfetch` service | Fetch policy, deterministic input scrub, quarantined summarisation, deterministic output scrub, and brokering the search provider |
+| Web fetch | HearthAI `hearthfetch` tools | Fetch policy, deterministic input scrub, quarantined distillation, deterministic output scrub, opaque result handles, and brokering the search provider |
 | General tools | Governed MCP boundary | Server/tool allowlists, credentials, audit, approvals |
 
 OpenWebUI's native memory is the near-term personal-memory implementation. HearthAI's memory service initially owns only deliberately shareable stores. **Long-term personal-memory ownership is unresolved:** the roadmap commits neither to permanent OpenWebUI ownership nor to an eventual HearthAI migration.
@@ -142,57 +142,67 @@ The current service's unrevocable full-access tokens are implementation evidence
 
 ### Purpose
 
-Ensure no untrusted web content ever enters OpenWebUI's model context. HearthAI fetches
-the page, reads it in a sandbox that holds nothing worth stealing, and returns a
-deterministically-scrubbed distillation.
+Ensure no untrusted web content ever enters OpenWebUI's model context. HearthAI fetches the
+page, reads it in a sandbox that holds nothing worth stealing, and returns a
+deterministically-scrubbed distillation directed at the question that was asked.
 
 ### The pattern
 
-This is the dual LLM pattern. OpenWebUI's model is the **privileged LLM** — conversation,
-memories, tools. `hearthfetch` runs the **quarantined LLM** — a URL and a page, no tools,
-no memory, no conversation, no credentials beyond its own. Three stages:
+The dual LLM pattern. OpenWebUI's model is the **privileged LLM** — conversation, memories,
+tools. `hearthfetch` runs the **quarantined LLM** — a page and a question, no tools, no
+memory, no conversation, no credentials beyond its own. Three stages:
 
 1. **Deterministic input scrub** — strip carriers a human reader would never see.
-2. **Quarantined summarisation** — the security boundary. Whatever the page says, it says
-   it to something that cannot act and has nothing to leak.
-3. **Deterministic output scrub** — what makes stage 2 hold. Without it the sandbox leaks
-   through the summary.
+2. **Quarantined distillation** — the security boundary. Whatever the page says, it says it
+   to something that cannot act and has nothing to leak.
+3. **Deterministic output scrub** — what makes stage 2 hold.
 
 Stages 1 and 3 are code. A model asked to police itself is not a control.
 
-### The channel that stage 3 closes
+### Delivered as tools
 
-Input isolation alone is insufficient, because the attack does not need the quarantined
-model to *know* anything, only to *repeat* something: a page asks for a markdown image
-with a placeholder, the quarantined model complies harmlessly (it cannot fill it in), the
-summary reaches the privileged model, which *can* — and the renderer makes the request.
-Zero clicks, no tool call.
+`search_web`, `fetch_result`, and optionally `fetch_url`, published as an OpenAPI tool
+server. HearthAI owns this contract. There is no combined `research()` orchestrator — that
+is the withdrawn product returning by the back door.
 
-Hence the core decision: **the model authors prose; the service authors every URL.** No
-link, image, or markup from the quarantined model survives stage 3, and anything
-URL-shaped that does survive scrubbing causes the document to be dropped rather than
-repaired.
+A tool means the model supplies the question, so distillation is question-directed. It also
+means the model composes the outbound request, which is an exfiltration primitive the
+retrieval-pipeline alternative did not have: a page can describe a destination in prose that
+survives URL scrubbing, and the model can act on it.
+
+Hence **search results are opaque HMAC-signed handles, not URLs** — the privileged model
+manipulates references, not values, so for every search-derived page it never sees, holds,
+or composes a URL. `fetch_url` accepting a literal URL is the residual, and shipping it is
+an open decision.
+
+### Two decisions that carry the design
+
+- **The model authors prose; the service authors every URL.** Nothing URL-shaped survives
+  stage 3; anything that does drops the document rather than being repaired.
+- **Never a fallback to raw page text**, on any failure path. That silently removes the
+  entire boundary.
 
 ### Included
 
-- the two OpenWebUI `external` endpoints, implemented to the deployed version's contract;
+- an OpenAPI tool server with narrow, versioned, bounded contracts;
+- HMAC-signed expiring result handles bound to their issuing search call;
 - fetch policy: HTTP(S) only, connect-time address validation, redirect revalidation,
   private/loopback/link-local/cluster/metadata destinations blocked, IPv4 and IPv6;
 - size, content-type, concurrency, and time limits;
 - input scrub: scripts, styles, comments, hidden and off-screen elements, attribute-borne
   and `<meta>` text, invisible and bidi Unicode;
-- quarantined summarisation over LiteLLM on a dedicated budgeted key;
-- output scrub, fail-closed, with an adversarial corpus and a property test;
+- quarantined distillation over LiteLLM on a dedicated budgeted key;
+- output scrub, plain text only, fail-closed, with an adversarial corpus and property test;
 - search brokered so the provider credential never enters OpenWebUI, snippets scrubbed on
   the same path;
-- per-URL failures omitted rather than failing the conversation, and **never** a fallback
-  to raw page text;
-- aggregate metrics without URL, query, content, or user labels, with output-scrub drops
-  as an alertable security signal.
+- typed failures rather than page text on every error path;
+- aggregate metrics without URL, query, question, content, or user labels, with output-scrub
+  drops and novel `fetch_url` hosts as alertable security signals.
 
 ### Deliberately not included
 
 - research synthesis, findings, citations, provenance, or conflict detection;
+- a combined `research()` orchestrator tool;
 - a job runner, run lifecycle, or per-request Kubernetes Job;
 - durable state, caching, or JavaScript execution;
 - PDF or other binary content in the first increment;
@@ -200,36 +210,34 @@ repaired.
 - a model checking a model;
 - any claim of provable security or a CaMeL-equivalent guarantee.
 
-### Known limitation
+### The bypass paths must be closed, or this is not a boundary
 
-The loader hook carries `{"urls": [...]}` and no query, so distillation there is
-query-blind — a generic summary rather than one directed at what was asked. That is the
-cost of catching every fetch including pasted URLs, and 0.3 accepts it: a partial boundary
-is not a boundary. A question-aware tool surface alongside it is an open decision.
+A tool only fires when the model elects to call it. OpenWebUI's native web search and its
+URL-attachment flow would otherwise pull raw page text into context without passing through
+any of this. 0.3 is therefore not complete until `ENABLE_WEB_SEARCH=false`, no
+`WEB_LOADER_ENGINE` is configured, and `open-webui` has no general internet egress — the
+network policy is what makes the remaining paths fail closed rather than quietly work.
 
 ### Ownership
 
-HearthAI owns the service, the three stages, the corpora, image, chart, tests, and release
-artifacts. `home-ops` owns deployment: OpenWebUI's `WEB_*` configuration, Bitwarden-backed
-tokens, the search key, a budgeted LiteLLM virtual key, metrics collection, and the
-network policies — default-deny egress on `open-webui`, and ingress-from-`open-webui`-only
-on `hearthfetch`.
+HearthAI owns the tools, the three stages, the corpora, image, chart, tests, and release
+artifacts. `home-ops` owns deployment: tool-server registration, disabling native retrieval,
+Bitwarden-backed tokens and keys, a budgeted LiteLLM virtual key, metrics and alerts, and
+the network policies.
 
 ### Acceptance
 
-1. OpenWebUI searches and loads pasted URLs entirely through `hearthfetch`.
-2. `open-webui` has no general internet egress and retrieval still works.
+1. OpenWebUI answers a current-information question entirely through `hearthfetch` tools.
+2. Native web search is off and `open-webui` has no general internet egress.
 3. No raw page text reaches the privileged context on any path, success or failure.
-4. No URL authored by the quarantined model survives into returned content, proven by
-   corpus and property test; anything URL-shaped that survives scrubbing drops the
-   document.
-5. Every input-corpus payload is removed and legitimate visible text survives.
-6. Direct and redirected requests cannot reach private, local, cluster, or metadata
+4. No URL appears in any tool response, proven by corpus and property test.
+5. The privileged model cannot reach a destination of its own choosing through
+   `fetch_result`, proven by handle forgery, expiry, and tampering tests.
+6. Every input-corpus payload is removed and legitimate visible text survives.
+7. Direct and redirected requests cannot reach private, local, cluster, or metadata
    destinations, including under DNS rebinding.
-7. Blocked, oversized, unreachable, or rejected URLs are omitted and logged without
-   failing the batch; search-provider failure returns an empty result.
-8. No page content, URL, query, or summary appears in a metric label, and output-scrub
-   drops are observable.
+8. No page content, URL, query, question, or distillation appears in a metric label, and
+   output-scrub drops are observable.
 
 ## 0.4 — Governed MCP
 
@@ -282,7 +290,7 @@ These are introduced only if 0.2 proves capability-based shared stores valuable 
 3. How should OpenWebUI consume the shared-memory skill semantics: OpenAPI descriptions, a model prompt fragment, or both?
 4. Who owns personal memory long term? OpenWebUI is the 0.1 implementation, but permanent ownership versus future HearthAI ownership is unresolved.
 5. Which Agent Skills-compatible host proves 0.2 portability first?
-6. Which search provider should `hearthfetch` broker, which LiteLLM model backs the quarantined summariser, and should a question-aware tool surface be added alongside the query-blind loader hook?
+6. Which search provider should `hearthfetch` broker, which LiteLLM model backs the quarantined distiller, and should `fetch_url` (literal model-composed URLs) ship at all?
 7. Which first MCP integration is useful enough to justify 0.4?
 
 ## Paused implementation work

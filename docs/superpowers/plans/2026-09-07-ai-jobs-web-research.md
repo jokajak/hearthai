@@ -14,7 +14,7 @@
 > (a research product rather than a fetch boundary) and the machinery around it.
 >
 > The current plan is
-> [`2026-09-07-hearthfetch-brokered-web-fetch.md`](2026-09-07-hearthfetch-brokered-web-fetch.md).
+> [`2026-09-07-hearthfetch-quarantined-web-tool.md`](2026-09-07-hearthfetch-quarantined-web-tool.md).
 > The code written against this document (`service/ai_jobs/`,
 > `service/web_research_worker/`) has been removed; recover it from git history at
 > `383e94c` if needed.
