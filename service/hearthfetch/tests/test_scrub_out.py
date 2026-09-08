@@ -86,8 +86,22 @@ def test_ordinary_distillations_are_not_dropped(name):
     assert result.strip()
 
 
-def test_link_text_survives_even_though_the_target_does_not():
-    assert "click here" in scrub("The page explains X. [click here](https://ok.example/a)")
+def test_a_distillation_carrying_a_destination_is_dropped_not_cleaned():
+    """Reject rather than clean: the distiller was told to emit no URLs, so one
+    appearing means the model went off-spec or a page steered it. Either way the
+    whole distillation is untrustworthy, and cleaning it would give an attacker
+    a free attempt per URL form the strippers happen not to know."""
+    with pytest.raises(DistillationDropped) as caught:
+        scrub("The page explains X. [click here](https://ok.example/a)")
+    assert caught.value.reason is DropReason.DESTINATION_PRESENT
+
+
+def test_a_path_less_bare_host_is_stripped_rather_than_dropped():
+    """The ambiguous case. Models mention sites in passing and it carries no
+    payload, so dropping every such distillation costs answers for nothing."""
+    result = scrub("The page explains X, according to wikipedia.org reporting.")
+    assert "wikipedia.org" not in result
+    assert "The page explains X" in result
 
 
 def test_the_gate_drops_even_if_stripping_regresses(monkeypatch):
@@ -100,9 +114,18 @@ def test_the_gate_drops_even_if_stripping_regresses(monkeypatch):
     import hearthfetch.scrub_out as module
 
     monkeypatch.setattr(module, "_strip_once", lambda text: text)
+    # Neutralise the destination gate too, so only the final assertion is left
+    # standing. Both layers must independently refuse to return a URL.
+    monkeypatch.setattr(module, "_DESTINATION", re.compile(r"(?!x)x"))
     with pytest.raises(DistillationDropped) as caught:
         module.scrub(f"The page explains X. {EXFIL}")
     assert caught.value.reason is DropReason.URL_SURVIVED
+
+
+def test_the_destination_gate_fires_before_stripping_can_hide_the_evidence():
+    with pytest.raises(DistillationDropped) as caught:
+        scrub(f"The page explains X. {EXFIL}")
+    assert caught.value.reason is DropReason.DESTINATION_PRESENT
 
 
 def test_a_path_less_bare_host_on_an_unlisted_tld_is_a_known_gap():

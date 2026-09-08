@@ -301,7 +301,20 @@ spray of many techniques is now *more* likely to be caught, not less.
 
 The critical control. Operates on model output before it becomes `content`.
 
-**Strip:** markdown images and links (drop target, keep visible text); reference definitions
+**First, before stripping: drop on an unambiguous destination.** A scheme, a
+scheme-relative URL, `data:`/`javascript:`/`file:`, a `www.` host, or any dotted host
+carrying a path causes the distillation to be discarded, not cleaned. The distiller is
+instructed to emit no URLs, so one appearing is off-spec — either the model ignored its
+instructions or a page steered it — and both make the whole distillation untrustworthy.
+Cleaning it would keep an artifact produced under conditions we no longer trust, and would
+hand an attacker a free attempt per URL form the strippers happen not to know. Detection
+runs on the unwrapped text, since `htt<b>p</b>s://` is not a destination until the tags are
+gone.
+
+A *path-less* bare host ("according to wikipedia.org") stays strip-only. It is the ambiguous
+case, models mention sites in passing, and it carries no payload.
+
+**Then strip:** markdown images and links (drop target, keep visible text); reference definitions
 and angle autolinks; bare URLs including scheme-relative, `data:`, and `javascript:` forms;
 raw HTML tags; control, zero-width, and bidi characters; anything past the length cap.
 
@@ -617,8 +630,10 @@ ordinary chat stream, and no documented setting for that was found. Revisit on e
 ## Open Decisions
 
 1. Which search provider does `hearthfetch` broker?
-2. Which LiteLLM model backs the quarantined distiller? It runs on every document, so cheap
-   and fast — `gpt-5.4-mini` or `gpt-5.6-luna` in the current catalogue.
+2. Which LiteLLM model backs the distiller and which the classifier? Both are configuration
+   (`HEARTHFETCH_DISTILLER_MODEL`, `HEARTHFETCH_CLASSIFIER_MODEL`) and independently set, so
+   this is a deployment value rather than a code change. Defaults are `gpt-5.4-mini` for
+   both; the distiller may warrant something stronger.
 3. **Ship `fetch_url` at all?** Enabled, it supports pasted URLs and leaves the composed-URL
    channel partly open. Disabled, the boundary is tight and pasted URLs are unsupported.
    Recommendation: ship it disabled, enable if the absence proves annoying.

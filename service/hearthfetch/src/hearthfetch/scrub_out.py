@@ -79,7 +79,28 @@ _URL_SHAPED = re.compile(
 )
 
 
+# An unambiguous destination: something a model could turn into a request.
+# Detected BEFORE stripping, and it drops the document rather than being cleaned
+# out of it. The distiller is told to emit no URLs, so one appearing is off-spec
+# — either the model ignored its instructions or a page steered it, and both
+# make the whole distillation untrustworthy. Cleaning it would keep an artifact
+# produced under conditions we no longer trust, and would give an attacker one
+# free attempt per URL form the strippers happen not to know.
+#
+# A path-less bare host ("see wikipedia.org") stays strip-only: it is the
+# ambiguous case, models mention sites in passing, and it carries no payload.
+_DESTINATION = re.compile(
+    r"[a-zA-Z][a-zA-Z0-9+.-]*://"
+    r"|\b(?:data|javascript|vbscript|file)\s*:"
+    r"|(?<![\w:])//[A-Za-z0-9]"
+    r"|\bwww\.[a-z0-9-]+\.[a-z]"
+    r"|\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)+/",
+    re.IGNORECASE,
+)
+
+
 class DropReason(StrEnum):
+    DESTINATION_PRESENT = "destination_present"
     URL_SURVIVED = "url_survived"
     UNSTABLE = "unstable"
     EMPTY = "empty"
@@ -91,6 +112,15 @@ class DistillationDropped(Exception):
     def __init__(self, reason: DropReason) -> None:
         super().__init__(str(reason))
         self.reason = reason
+
+
+def _unwrap_once(text: str) -> str:
+    """Remove only what hides a destination, without removing the destination."""
+    text = unicodedata.normalize("NFKC", text)
+    text = _INVISIBLE.sub("", text)
+    text = _CONTROL.sub("", text)
+    text = _HTML_TAG.sub("", text)
+    return text
 
 
 def _strip_once(text: str) -> str:
@@ -121,6 +151,17 @@ def scrub(text: str) -> str:
     the wrapper, and only a second pass sees the URL underneath. Needing that
     second pass is fine; still carrying a URL after them is not.
     """
+    # Unwrap first, then judge. `htt<b>p</b>s://` is not a destination until the
+    # tags are gone, so detection has to see the normalised form.
+    unwrapped = text
+    for _ in range(_MAX_PASSES):
+        nxt = _unwrap_once(unwrapped)
+        if nxt == unwrapped:
+            break
+        unwrapped = nxt
+    if _DESTINATION.search(unwrapped):
+        raise DistillationDropped(DropReason.DESTINATION_PRESENT)
+
     for _ in range(_MAX_PASSES):
         nxt = _strip_once(text)
         if nxt == text:
