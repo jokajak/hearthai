@@ -19,6 +19,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hearthfetch"]
+# The OpenAPI document is served at runtime, so it ships inside the package
+# rather than sitting beside it in the source tree.
+artifacts = ["src/hearthfetch/openapi.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

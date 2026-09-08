@@ -1,0 +1,134 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "hearthfetch",
+    "version": "1.0.0",
+    "description": "Search the web and read one page, through a quarantined model. Returns distilled prose. Never returns URLs, and never accepts one."
+  },
+  "paths": {
+    "/v1/tools/search_web": {
+      "post": {
+        "operationId": "search_web",
+        "summary": "Search the web",
+        "description": "Search for pages matching a query. Returns opaque handles, titles and snippets. Pass a handle to fetch_result to read that page. Handles expire; search again rather than reusing an old one.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["query"],
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "maxLength": 512,
+                    "description": "What to search for."
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 5,
+                    "description": "How many results to return."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Results, possibly empty.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "handle": {
+                            "type": "string",
+                            "description": "Opaque reference to the page. Pass to fetch_result."
+                          },
+                          "title": { "type": "string" },
+                          "snippet": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tools/fetch_result": {
+      "post": {
+        "operationId": "fetch_result",
+        "summary": "Read a search result",
+        "description": "Read the page behind a handle from search_web and answer a question from it. Returns distilled prose, not the page. If the source is rejected, say so and try another result rather than retrying this one.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["handle", "question"],
+                "properties": {
+                  "handle": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "description": "A handle from search_web. Not a URL."
+                  },
+                  "question": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "description": "What to find out from the page."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A distillation, or a stable failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "content": { "type": "string" },
+                        "title": { "type": "string" }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": { "type": "string" },
+                            "message": { "type": "string" }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

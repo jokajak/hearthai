@@ -176,7 +176,7 @@ means the model composes the outbound request, which is an exfiltration primitiv
 retrieval-pipeline alternative did not have: a page can describe a destination in prose that
 survives URL scrubbing, and the model can act on it.
 
-Hence **search results are opaque HMAC-signed handles, not URLs** — the privileged model
+Hence **search results are opaque sealed handles, not URLs** — the privileged model
 manipulates references, not values, so for every search-derived page it never sees, holds,
 or composes a URL. And there is **no literal-URL tool at all**: it was removed rather than
 defaulted off, because a capability behind a flag is one that gets turned on later without
@@ -197,7 +197,8 @@ search for them.
 ### Included
 
 - an OpenAPI tool server with narrow, versioned, bounded contracts;
-- HMAC-signed expiring result handles bound to their issuing search call;
+- AES-GCM sealed expiring result handles bound to their issuing search call — sealed
+  rather than signed, since a signed token is unforgeable but still readable;
 - fetch policy: HTTP(S) only, connect-time address validation, redirect revalidation,
   private/loopback/link-local/cluster/metadata destinations blocked, IPv4 and IPv6;
 - size, content-type, concurrency, and time limits;

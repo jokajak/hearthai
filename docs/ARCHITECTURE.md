@@ -274,7 +274,7 @@ primitive: a page can describe a destination in prose that survives URL scrubbin
 model can then compose that URL as a tool argument.
 
 The answer, borrowed from CaMeL's symbolic variables: **the privileged model manipulates
-references, not values.** `search_web` returns opaque HMAC-signed handles; `fetch_result`
+references, not values.** `search_web` returns opaque AES-GCM sealed handles; `fetch_result`
 takes a handle. For every search-derived page the model never sees, holds, or composes a
 URL — and no tool accepts one, so the channel is closed rather than narrowed. The cost is
 pasted URLs, which are unsupported.

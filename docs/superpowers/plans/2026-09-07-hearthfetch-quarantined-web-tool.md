@@ -76,8 +76,10 @@ not values.**
 
 > **Decision: search results are opaque handles, not URLs.**
 >
-> `search_web` returns `{handle, title, snippet}`. The handle is an HMAC-signed token
-> encoding the URL and an expiry — unforgeable, and stateless, so it costs no storage.
+> `search_web` returns `{handle, title, snippet}`. The handle is an AES-GCM **sealed**
+> token encoding the URL, its issuing search, and an expiry. Sealed rather than signed:
+> a signed token is unforgeable but still readable, and the model decoding a URL out of one
+> would undo the property. Stateless, so it costs no storage.
 > `fetch_result` takes a handle. For every search-derived page, the model never sees, holds,
 > or composes a URL.
 
@@ -207,7 +209,7 @@ There is no third tool. No request type accepts a URL, and no configuration can 
 - **No URL appears in any response body.** The source belongs in a field OpenWebUI shows
   the user rather than the model, if one exists; whether tool responses reach the prompt
   verbatim must be verified at integration.
-- Handles are HMAC-signed with a short expiry and bound to the issuing search call.
+- Handles are AES-GCM sealed with a short expiry and bound to the issuing search call.
 
 ## ① Deterministic Input Scrub
 
@@ -439,20 +441,25 @@ service/
 └── hearthfetch/
     ├── pyproject.toml
     ├── src/hearthfetch/
-    │   ├── __main__.py
-    │   ├── api.py                  # the tools, auth, limits
-    │   ├── handles.py              # HMAC-signed result handles
+    │   ├── __main__.py             # config, real adapters, SIGTERM
+    │   ├── api.py                  # ToolService + the HTTP transport
+    │   ├── contracts.py            # request/response types; no URL field exists
+    │   ├── handles.py              # AES-GCM sealed result handles
     │   ├── fetch.py                # fetch policy and SSRF boundary
     │   ├── scrub_in.py             # ①
-    │   ├── distill.py              # ② quarantined LiteLLM call
+    │   ├── distill.py              # ②
     │   ├── scrub_out.py            # ③
-    │   ├── search.py               # search-provider adapter
-    │   └── observability.py
-    ├── openapi.json
+    │   ├── classify.py             # ④
+    │   ├── pipeline.py             # the four stages, in order
+    │   ├── llm.py                  # ChatModel seam + LiteLLM adapter
+    │   ├── search.py               # SearXNG adapter, mints handles
+    │   ├── config.py               # every deployment value
+    │   ├── observability.py        # metrics with redaction enforced
+    │   └── openapi.json            # inside the package: it is served at runtime
     └── tests/
-        ├── corpus_in/              # one page per input-scrub rule
-        ├── corpus_out/             # one payload per output-scrub rule
-        └── …
+        ├── corpus.py               # adversarial + false-positive corpora, inline
+        ├── fakes.py                # scripted models; no network in any test
+        └── test_*.py
 deploy/charts/hearthfetch/
 docs/runbooks/hearthfetch.md
 ```
@@ -473,7 +480,7 @@ field**. Wire a `hearthfetch` CI job in this commit.
 
 ### Task 2: Handles
 
-HMAC-signed, expiring, bound to the issuing search call. Test forgery, expiry, cross-call
+AES-GCM sealed, expiring, bound to the issuing search call. Test forgery, expiry, cross-call
 reuse, tampering, and truncation. Test that a handle cannot be made to encode a destination
 the search provider did not return.
 
