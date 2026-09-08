@@ -4,13 +4,13 @@
 **Roadmap:** [`ROADMAP.md`](ROADMAP.md)  
 **Design detail:** [`superpowers/specs/2026-08-30-capability-roadmap-design.md`](superpowers/specs/2026-08-30-capability-roadmap-design.md)
 
-HearthAI's immediate product boundary is a useful OpenWebUI work surface: GitHub PR work, bounded web research, and automatic topic organization. Shared memory remains a portable HearthAI capability that supports those workflows; governed MCP follows after the specific capability boundaries are exercised.
+HearthAI's immediate product boundary is a useful OpenWebUI work surface: Git change work, bounded web research, and automatic topic organization. Shared memory remains a portable HearthAI capability that supports those workflows; governed MCP follows after the specific capability boundaries are exercised.
 
 Long-term personal-memory ownership is unresolved. OpenWebUI supplies personal memory in 0.1; HearthAI initially specializes in deliberately shareable memory.
 
 ## Current capability priorities
 
-- **GitHub PR work:** the first execution profile, for any repository carrying both an explicit HearthAI authorization record and a GitHub App installation selection. See *Execution substrate* below for the materializer/worker/publisher split and its credential boundaries: the sandboxed worker holds no GitHub credential and runs repository-controlled checks, and only the separate publisher pod acts as `hearthai[bot]`. No merge authority.
+- **Git change work:** the first execution profile, for any repository carrying both an explicit HearthAI authorization record and a GitHub App installation selection. See *Execution substrate* below for the materializer/worker/publisher split and its credential boundaries: the sandboxed worker holds no GitHub credential and runs repository-controlled checks, and only the separate publisher pod acts as `hearthai[bot]`. No merge authority.
 - **Web research:** a bounded, cited capability with an isolated worker; not general browsing or execution.
 - **Topic manager:** creates clean logical chats on topic shifts. Detection is HearthAI's, at the chat boundary, not the answering model's mid-response; the boundary defaults closed, so a false split costs a re-selected artifact rather than lost history. By default it provides no predecessor transcript to the model; only selected artifacts, named project/repository context, or a brief relevant task summary may cross the boundary. Keeping earlier topics navigable is chat-surface behavior OpenWebUI does not provide, so this capability may require relaxing the 0.1 *no custom frontend* exclusion — by an OpenWebUI extension if one suffices, otherwise by an explicit recorded decision.
 - **Audit:** every consequential agent run is durably attributable to a request, agent identity, approval, repository, commits, checks, and external actor.
@@ -29,7 +29,7 @@ or ambient credentials. It has a read-only root filesystem except for explicit e
 workspaces and fixed profile egress. Initial profiles do not expose generic tools to a model.
 They contain only the machinery needed for that profile.
 
-**GitHub PR work is the first profile and the validation vehicle.** A repository-materializer init
+**Git change work is the first profile and the validation vehicle.** A repository-materializer init
 container uses a short-lived, read-only token to fetch the authorized repository/ref to an
 ephemeral workspace, then removes the token, Git credential configuration, and `.git` before the
 worker starts (unless a fixed profile demonstrably requires history). A profile that does retain
@@ -57,7 +57,7 @@ Inference     LiteLLM model routing
 
 ## System architecture
 
-> **Pending rewrite:** this diagram predates the execution substrate and the GitHub PR profile. It
+> **Pending rewrite:** this diagram predates the execution substrate and the Git change profile. It
 > shows `ai-jobs` as a later web-research-only capability and has no GitHub or topic-manager node.
 > *Execution substrate* above and the priority correction in `ROADMAP.md` are authoritative.
 
@@ -133,7 +133,7 @@ flowchart TB
 | **Shared-memory service** | Store lifecycle, capability access, records, retrieval, audit, export | OpenWebUI account or personal-memory data |
 | **`ai-jobs` control plane** | Typed capability admission, HearthAI authorization, profile selection, execution state, fixed Kubernetes Job lifecycle, result delivery, durable run audit, health, and metrics | General job execution, user-facing job administration, or model-selected runtime configuration |
 | **Worker profile** | One bounded capability-specific worker contract, including sandbox, workspace, and output artifact rules | Durable state, provider or Kubernetes credentials, service-account tokens, a general shell, or caller-selected tools, image, or pod configuration |
-| **GitHub PR profile** | Ephemeral repository workspace, sandboxed repository checks, separate publish pod as `hearthai[bot]` | Direct use of the App private key, merge authority, arbitrary repository access, or worker-to-publisher access |
+| **Git change profile** | Ephemeral repository workspace, sandboxed repository checks, separate publish pod as `hearthai[bot]` | Direct use of the App private key, merge authority, arbitrary repository access, or worker-to-publisher access |
 | **Topic manager** | Topic-shift detection at the chat boundary, logical conversation creation, navigable topic links, and the explicit carry-over set | Model context outside the carry-over set, transcript retention decisions, or deleting earlier topics |
 | **MCP boundary** | Approved servers/tools, scoped credentials, audit, approvals | Bypassing sandbox or memory approval |
 
@@ -177,7 +177,7 @@ A model may recall from an available store. A shared write always requires a per
 
 The model may propose; it may not silently share.
 
-> **Pending rewrite:** the release diagram and the numbered `0.1`–`0.4` milestone sections that follow predate the execution substrate and the GitHub PR profile. They still describe `ai-jobs` as a 0.3 web-research-only service. *Execution substrate* above and the current priority correction in `ROADMAP.md` are authoritative until those sections are rewritten.
+> **Pending rewrite:** the release diagram and the numbered `0.1`–`0.4` milestone sections that follow predate the execution substrate and the Git change profile. They still describe `ai-jobs` as a 0.3 web-research-only service. *Execution substrate* above and the current priority correction in `ROADMAP.md` are authoritative until those sections are rewritten.
 
 ## Release architecture
 
@@ -365,7 +365,7 @@ MCP is introduced only after the web-research release establishes isolation, pro
 - Authentik OIDC integration;
 - LiteLLM configuration;
 - OpenWebUI binding for the shared-memory service;
-- `ai-jobs` execution substrate, worker-profile framework, GitHub PR profile, and OpenWebUI integration;
+- `ai-jobs` execution substrate, worker-profile framework, Git change profile, and OpenWebUI integration;
 - governed MCP configuration.
 
 ## Deferred architecture
@@ -396,7 +396,7 @@ These decisions follow evidence from 0.1 and 0.2.
 | `ai-jobs` as the single execution substrate for every model-callable capability | Approved; supersedes its web-research-only scope |
 | Profile-fixed set of ephemeral sandboxed pods per execution | Approved |
 | Dedicated HearthAI GitHub App with `hearthai[bot]` as the acting identity | Approved; App private key stays outside every pod |
-| GitHub PR work as the first worker profile | Approved as the substrate's validation vehicle |
+| Git change work as the first worker profile | Approved as the substrate's validation vehicle |
 | Sandboxed execution of repository-controlled checks | Approved; the sandbox is fixed, the check behavior is not |
 | Separate publisher pod holding the write-scoped installation token | Approved; sidecar publisher explicitly rejected |
 | Merge authority for any HearthAI actor | Excluded |
