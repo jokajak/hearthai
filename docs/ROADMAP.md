@@ -156,8 +156,14 @@ memory, no conversation, no credentials beyond its own. Three stages:
 2. **Quarantined distillation** — the security boundary. Whatever the page says, it says it
    to something that cannot act and has nothing to leak.
 3. **Deterministic output scrub** — what makes stage 2 hold.
+4. **Quarantined classification** — a separate model reads only the scrubbed distillation and
+   answers one question: does this contain instructions directed at the assistant reading it?
+   A positive verdict rejects the source.
 
-Stages 1 and 3 are code. A model asked to police itself is not a control.
+Stages 1 and 3 are code and load-bearing. Stage 4 is probabilistic and strictly additive: it
+may reject, never permit, and no deterministic rule is relaxed because it exists. It is the
+only layer that can touch plainly visible prose, which no deterministic test can distinguish
+from legitimate content.
 
 ### Delivered as tools
 
@@ -202,6 +208,8 @@ an open decision.
   rejects the ordinary web is an outage rather than a control;
 - quarantined distillation over LiteLLM on a dedicated budgeted key;
 - output scrub, plain text only, fail-closed, with an adversarial corpus and property test;
+- a quarantined classifier over the scrubbed distillation returning a closed-enum verdict and
+  never an explanation, since a reason string is both a channel and a bypass oracle;
 - search brokered so the provider credential never enters OpenWebUI, snippets scrubbed on
   the same path;
 - typed failures rather than page text on every error path;

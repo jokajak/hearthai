@@ -246,7 +246,8 @@ flowchart LR
     WEB --> S1["① deterministic input scrub"]
     S1 --> Q["② <b>quarantined LLM</b><br/>page + question<br/>no tools · no memory"]
     Q --> S3["③ deterministic output scrub<br/><i>plain prose, fail closed</i>"]
-    S3 -->|"no URLs"| OW
+    S3 --> C4["④ quarantined classifier<br/><i>one bit: reject?</i>"]
+    C4 -->|"no URLs, no instructions"| OW
     OW -. "native search off<br/>egress denied" .-> WEB
 ```
 
@@ -282,7 +283,11 @@ disabled by default.
 
 - no tools, memory, conversation history, or credentials in the quarantined model beyond its
   own budgeted LiteLLM key;
-- stages ① and ③ are deterministic code, never a prompt and never a model checking a model;
+- stages ① and ③ are deterministic code and are load-bearing; stage ④ is a probabilistic
+  classifier that may reject but never permit, and no deterministic rule is relaxed because
+  it exists;
+- the classifier returns a closed-enum verdict and never an explanation — a reason string is
+  attacker-influenced text re-entering the privileged context, and a bypass oracle;
 - detection in stage ① rejects the whole source rather than cleaning it, so every payload on
   a page must evade the detector at once; rejection reasons are never returned, since a
   reason is a bypass oracle;
