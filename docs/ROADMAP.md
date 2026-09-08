@@ -19,7 +19,29 @@ HearthAI's first proof of value is a useful OpenWebUI work surface, not an isola
 
 OpenWebUI remains the browser surface and its native memory remains the near-term personal-memory implementation. This correction changes product priority, not the existing commitments to model-independent boundaries, deliberate sharing, least privilege, provenance, and approval for consequential actions.
 
+### Execution substrate
+
+Every model-callable capability runs in one short-lived, sandboxed Kubernetes pod. The control
+plane accepts only a typed request and selects a reviewed worker profile; it is not a general job
+API. A run has no durable filesystem, no Kubernetes API access, no service-account token, and no
+ambient credentials. Its egress and resource limits are fixed by profile.
+
+The first worker profile is **GitHub PR work**. It validates the pod manager rather than bypassing
+it: an init container materializes the explicitly authorized repository into an ephemeral
+workspace; the sandboxed worker edits and executes repository-controlled checks; a separate
+fixed publisher in the same run holds a short-lived, repository-scoped installation token and
+creates the branch, commits, and PR as `hearthai[bot]`. The App private key never enters a pod.
+The worker never receives the installation token. No general tools are installed or exposed in
+the initial worker beyond what that fixed profile requires.
+
+Repository authority requires **both** an explicit HearthAI authorization record and a selected
+repository in the GitHub App installation. Removing either blocks the next run. The execution
+control plane owns the durable run audit: request, selected profile, authorization decision,
+approval, pod identity, repository/ref, produced commits, checks, and GitHub actor.
+
 ## Earlier roadmap detail — pending rewrite
+
+Everything from **Direction** through **Session recovery** below is superseded by the correction above until it is rewritten.
 
 ## Direction
 
