@@ -11,7 +11,7 @@ This section supersedes the earlier *Direction*, numbered ordering, and 0.1 excl
 
 HearthAI's first proof of value is a useful OpenWebUI work surface, not an isolated memory experiment. The delivery order is:
 
-1. **GitHub PR work first:** support any repository that carries both an explicit HearthAI authorization record and a GitHub App installation selection. A dedicated HearthAI GitHub App and short-lived installation tokens make GitHub activity attributable to `hearthai[bot]`, never Josh. The agent may create a branch, make changes, run the repository's own checks, and open a pull request; it cannot merge. Those checks are repository-controlled code, so what contains them is the sandbox described in *Execution substrate* below, not an allowlist of check names. The `ai-jobs` control plane owns the durable run audit.
+1. **Git change work first:** support any repository that carries both an explicit HearthAI authorization record and a GitHub App installation selection. A dedicated HearthAI GitHub App and short-lived installation tokens make GitHub activity attributable to `hearthai[bot]`, never Josh. The agent may create a branch, make changes, run the repository's own checks, and open a pull request; it cannot merge. Those checks are repository-controlled code, so what contains them is the sandbox described in *Execution substrate* below, not an allowlist of check names. The `ai-jobs` control plane owns the durable run audit.
 2. **Bounded web research:** make current, source-backed research available from the same chat surface through an isolated, fixed-purpose worker. It is not a generic executor.
 3. **Automatic topic organization:** topic changes create a clean logical conversation by default. Detection belongs to a HearthAI topic manager at the chat boundary, not to the answering model, and the boundary defaults closed: a false split costs a re-selected artifact, never lost history. Preserve no transcript unless an explicit artifact, named project/repository, or short relevant task brief is selected. Old topics remain linked for navigation but do not contaminate the next prompt. Presenting split topics as navigable is chat-surface behavior OpenWebUI does not provide, so this is the one capability that may require relaxing the *Direction* non-goal of building no custom web UI — through an OpenWebUI extension if one suffices, otherwise by an explicit recorded decision.
 4. **Shareable memory:** integrate the existing skill and service where it improves these workflows. Sharing remains deliberate and shared writes still require approval.
@@ -28,7 +28,7 @@ what each may reach, and its egress and resource limits; the caller never does. 
 control plane accepts only a typed request and selects a reviewed worker profile; it is not a
 general job API.
 
-The first worker profile is **GitHub PR work**. It validates the pod manager rather than bypassing
+The first worker profile is **Git change work**. It validates the pod manager rather than bypassing
 it: a materializer init container uses a short-lived, read-only repository token to create an
 ephemeral workspace, removes the token and Git credential/configuration before the worker starts,
 and drops `.git` unless a fixed profile demonstrably needs it. A profile that does need history
