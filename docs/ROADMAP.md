@@ -5,6 +5,22 @@
 **Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)<br>
 **Design detail:** [`superpowers/specs/2026-08-30-capability-roadmap-design.md`](superpowers/specs/2026-08-30-capability-roadmap-design.md)
 
+## Current priority correction — 2026-09-08
+
+This section supersedes the earlier *Direction*, numbered ordering, and 0.1 exclusions below until the milestone detail is rewritten.
+
+HearthAI's first proof of value is a useful OpenWebUI work surface, not an isolated memory experiment. The delivery order is:
+
+1. **GitHub PR work first:** support any repository Josh explicitly authorizes. Use a dedicated HearthAI GitHub App and installation tokens so GitHub activity is visibly attributable to `hearthai[bot]`, never Josh. The agent may create a branch, make changes, run fixed validation, and open a pull request; it cannot merge. Each run has a durable internal audit record that identifies the request, agent, approval, repository, commits, and checks.
+2. **Bounded web research:** make current, source-backed research available from the same chat surface through an isolated, fixed-purpose worker. It is not a generic executor.
+3. **Automatic topic organization:** topic changes create a clean logical conversation by default. Preserve no transcript unless an explicit artifact, named project/repository, or short relevant task brief is selected. Old topics remain linked for navigation but do not contaminate the next prompt.
+4. **Shareable memory:** integrate the existing skill and service where it improves these workflows. Sharing remains deliberate and shared writes still require approval.
+5. **Governed MCP and richer household identity:** follow only after the above boundaries have real-world evidence.
+
+OpenWebUI remains the browser surface and its native memory remains the near-term personal-memory implementation. This correction changes product priority, not the existing commitments to model-independent boundaries, deliberate sharing, least privilege, provenance, and approval for consequential actions.
+
+## Earlier roadmap detail — pending rewrite
+
 ## Direction
 
 HearthAI begins by adopting OpenWebUI as a useful chat platform, then adds HearthAI's distinctive shared-memory skill and service, then delegated web research, then governed MCP interoperability.
