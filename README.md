@@ -30,7 +30,7 @@ HearthAI must first remove friction from work Josh already does: **GitHub contri
 web research, and conversation organization**. Shared memory remains a differentiator, but it
 supports those workflows rather than standing ahead of them.
 
-- **GitHub first:** HearthAI works on a repository only when Josh has explicitly authorized it
+- **Git repositories first:** HearthAI works on a repository only when Josh has explicitly authorized it
   *and* it is selected in the GitHub App installation; removing either stops the next run. Every
   model-callable capability runs as a profile-fixed set of short-lived sandboxed pods, and GitHub
   PR work is the first profile used to validate that substrate. The worker gets an ephemeral
