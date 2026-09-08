@@ -29,6 +29,21 @@ jobs:
         # config that will not exist in a container.
         run: uv run --no-project --with 'pytest>=8,<10' python -m pytest tests -q
 
+  hearthfetch:
+    name: hearthfetch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Test contracts, handles and fetch policy
+        # From the package root so pytest honours that project's testpaths
+        # instead of sweeping the repository into an environment built for it.
+        working-directory: service/hearthfetch
+        run: uv run --extra test python -m pytest -q
+
   image:
     name: build image
     runs-on: ubuntu-latest

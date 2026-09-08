@@ -1,0 +1,24 @@
+[project]
+name = "hearthfetch"
+version = "0.0.0"
+description = "Quarantined web fetch and distillation for HearthAI"
+requires-python = ">=3.13"
+dependencies = [
+  # AES-GCM for result handles. The handle must be opaque to the privileged
+  # model, not merely unforgeable: a signed-but-readable handle would let it
+  # recover a URL, and "the model never sees a URL" is a stated property.
+  "cryptography>=43",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hearthfetch"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

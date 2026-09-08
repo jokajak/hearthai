@@ -318,6 +318,16 @@ indistinguishable from legitimate content by any deterministic test, at any numb
 
 A classifier can catch it, and this is an unusually favourable place to put one.
 
+### One page, one distillation, discard on any issue
+
+A call distils exactly one source. There is no cross-source synthesis, so there is nothing to
+trace: a rejected page is discarded and the call returns a typed failure. No re-distillation,
+no source-attribution machinery.
+
+Graceful degradation is already free at the conversation level. The privileged model holds
+several handles and calls `fetch_result` per handle, so one hostile page fails one call while
+the others succeed.
+
 ### Why the position is good
 
 - **The input is the distillation, not the page.** Short, plain prose, already stripped of
@@ -346,14 +356,17 @@ distillation — never the original page, and never the distiller's prompt or re
 recipes say "preheat the oven", tutorials say "run this command", documentation says "set the
 flag". Those are instructions to the **user**, about the **world**.
 
-The right question is narrower and far more separable:
+The right question is narrower and far more separable — it asks about **side effects**:
 
-> **Does this contain instructions directed at the assistant reading it?**
+> **Does this text try to make the reader *do* something, as opposed to merely informing?**
 
-Markers of that class: second-person directives about the system's own behaviour; references
-to fetching, tools, links, or prior instructions; attempts to establish authority or
-priority; requests to include specific text or markup in a response. A recipe trips none of
-them.
+The actionable class is what matters: inducing a tool call, a fetch, a read, or the inclusion
+of specific text or markup in a reply. Markers: second-person directives about the system's
+own behaviour, references to fetching, tools, links, or prior instructions, and attempts to
+establish authority or priority.
+
+A recipe tells the *user* to preheat an oven — a fact about the world, with no side effect on
+the assistant. That distinction is the whole test.
 
 ### What it does not do
 
