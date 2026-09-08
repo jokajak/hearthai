@@ -189,6 +189,18 @@ POST /v1/tools/fetch_url            # optional; disable to close the composed-UR
 ```
 
 - Snippets are attacker-influenced text: they pass through ① and ③ before being returned.
+  Self-hosting SearXNG changes nothing about that — an attacker who ranks for a query
+  controls the title and snippet it returns, so owning the aggregator removes a vendor
+  relationship, not a threat.
+- **Snippets get ① and ③ but not ② or ④.** Five results would mean five classifier calls
+  per search, on text far too short to distil. The consequence, recorded rather than
+  hidden: the known bare-host gap in ③ has no layer behind it for snippets, so a path-less
+  `evil.zz` in a snippet reaches the privileged model. Low severity — reaching a sink from
+  it needs `fetch_url` enabled, which is off by default for exactly this kind of reason —
+  and revisit if snippet abuse ever shows up in practice.
+- A result whose **title** cannot be scrubbed safely is dropped: the title is how a person
+  recognises a result. A result whose **snippet** cannot be is returned with the snippet
+  emptied, since the handle and title still work.
 - `content` is the distillation, never page text.
 - **No URL appears in any response body.** The source belongs in a field OpenWebUI shows
   the user rather than the model, if one exists; whether tool responses reach the prompt

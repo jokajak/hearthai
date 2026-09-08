@@ -307,7 +307,7 @@ These are introduced only if 0.2 proves capability-based shared stores valuable 
 3. How should OpenWebUI consume the shared-memory skill semantics: OpenAPI descriptions, a model prompt fragment, or both?
 4. Who owns personal memory long term? OpenWebUI is the 0.1 implementation, but permanent ownership versus future HearthAI ownership is unresolved.
 5. Which Agent Skills-compatible host proves 0.2 portability first?
-6. Which search provider should `hearthfetch` broker, which LiteLLM model backs the quarantined distiller, and should `fetch_url` (literal model-composed URLs) ship at all?
+6. Which LiteLLM model backs the quarantined distiller and which the classifier, and should `fetch_url` (literal model-composed URLs) ship at all? *(Search provider resolved 2026-09-08: self-hosted SearXNG.)*
 7. Which first MCP integration is useful enough to justify 0.4?
 
 ## Paused implementation work
