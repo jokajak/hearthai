@@ -179,6 +179,10 @@ an open decision.
 
 - **The model authors prose; the service authors every URL.** Nothing URL-shaped survives
   stage 3; anything that does drops the document rather than being repaired.
+- **Detection rejects the source rather than cleaning it.** Stripping gives an attacker many
+  attempts per page; rejection makes every payload have to evade detection at once. The
+  design assumes the sanitiser is public — it is AGPL-3.0 — so nothing rests on the attacker
+  not knowing the rules.
 - **Never a fallback to raw page text**, on any failure path. That silently removes the
   entire boundary.
 
@@ -189,8 +193,13 @@ an open decision.
 - fetch policy: HTTP(S) only, connect-time address validation, redirect revalidation,
   private/loopback/link-local/cluster/metadata destinations blocked, IPv4 and IPv6;
 - size, content-type, concurrency, and time limits;
-- input scrub: scripts, styles, comments, hidden and off-screen elements, attribute-borne
-  and `<meta>` text, invisible and bidi Unicode;
+- input scrub with two rule classes: benign-common constructs stripped, and reject-class
+  constructs — Unicode tag block, bidi override, in-word zero-width, adversarially hidden
+  text — discarding the **entire source** rather than being cleaned out of it;
+- sanitisation run to a fixed point, with non-idempotence itself a rejection signal, so
+  strip-once evasions (`<scr<script>ipt>`, normalisation-synthesised sequences) are caught;
+- a false-positive corpus of ordinary pages that must survive, because a detector that
+  rejects the ordinary web is an outage rather than a control;
 - quarantined distillation over LiteLLM on a dedicated budgeted key;
 - output scrub, plain text only, fail-closed, with an adversarial corpus and property test;
 - search brokered so the provider credential never enters OpenWebUI, snippets scrubbed on

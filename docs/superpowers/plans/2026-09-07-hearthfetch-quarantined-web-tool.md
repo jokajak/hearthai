@@ -130,23 +130,33 @@ attacker-controlled prose influencing the privileged model, literal-URL tool cal
    credentials beyond its own LiteLLM key.**
 2. **Steps ① and ③ are deterministic code.** Never a prompt asking a model to behave, never
    a model checking a model.
-3. **The model authors prose; the service authors every URL.**
-4. **Search results are handles, not URLs.** The privileged model manipulates references.
-5. **Output validation fails closed.** Anything URL-shaped surviving the scrub drops the
+3. **A detected payload rejects the source, it does not get cleaned out of it.** Stripping
+   gives an attacker many attempts per page; rejection requires every payload to evade
+   detection at once. Reject-class rules are those a legitimate publisher would never trip.
+4. **Sanitisation runs to a fixed point, and non-idempotence is a rejection signal.**
+   Legitimate content is already clean after one pass. Content that only becomes clean on
+   the second pass was built to survive the first.
+5. **Assume the sanitiser is public.** It is AGPL-3.0 and the techniques are published;
+   security cannot rest on the attacker not knowing the rules.
+6. **The model authors prose; the service authors every URL.**
+7. **Search results are handles, not URLs.** The privileged model manipulates references.
+8. **Output validation fails closed.** Anything URL-shaped surviving the scrub drops the
    document. Repair invites bypass.
-6. **HearthAI owns this contract.** This reverses the previous revision: implementing
+9. **HearthAI owns this contract.** This reverses the previous revision: implementing
    OpenWebUI's `external` hook meant taking their schema, but a tool server means we
    publish an OpenAPI spec and own it. Versioned, and narrow by construction.
-7. **Two or three tools, no orchestrator.** `search_web`, `fetch_result`, and optionally
+10. **Two or three tools, no orchestrator.** `search_web`, `fetch_result`, and optionally
    `fetch_url`. No combined `research()` — that is the withdrawn product returning by the
    back door.
-8. **Stateless.** No run records, no registry, no idempotency keys, no durable storage, no
+11. **Stateless.** No run records, no registry, no idempotency keys, no durable storage, no
    per-request Kubernetes object. Handles are signed, not stored.
-9. **No JavaScript execution.** No headless browser.
-10. **Never a fallback to raw page text**, on any failure path. That silently removes the
+12. **No JavaScript execution.** No headless browser.
+13. **Never a fallback to raw page text**, on any failure path. That silently removes the
     entire boundary and is the worst failure this design can have.
-11. **Degrade, don't fail the conversation.** A blocked, oversized, unreachable, or
-    scrub-rejected page returns a stable typed failure, not page text and not an exception.
+14. **Degrade, don't fail the conversation.** A blocked, oversized, unreachable, or
+    rejected page returns a stable typed failure, not page text and not an exception. The
+    privileged model is told the source was rejected, never why — a rejection reason is a
+    bypass oracle.
 
 ## The Contract
 
@@ -177,20 +187,82 @@ POST /v1/tools/fetch_url            # optional; disable to close the composed-UR
 
 ## ① Deterministic Input Scrub
 
-Applied to parsed HTML before the quarantined model reads it:
+### Reject the source, do not clean it
 
-- Remove `<script>`, `<style>`, `<noscript>`, `<template>`, `<svg>`, and HTML comments.
-- Remove elements hidden by inline style (`display:none`, `visibility:hidden`, `opacity:0`,
-  zero or near-zero font size), off-screen absolute positioning, the `hidden` attribute, or
-  `aria-hidden="true"`.
-- Do not extract attribute-borne text: `alt`, `title`, `placeholder`, `data-*`, `<meta>`.
-  Invisible to a human reader, and a standard injection channel.
-- Normalise Unicode: NFKC, then strip the Unicode Tag block (U+E0000–U+E007F), zero-width
-  characters (U+200B–U+200D, U+FEFF), and bidi overrides (U+202A–U+202E, U+2066–U+2069).
-- Collapse whitespace runs.
+**A detected payload rejects the whole document.** Stripping is the wrong default: it gives
+an attacker many attempts in one page — plant twenty payloads, nineteen are stripped, one
+novel technique survives, and the page still flows through. Rejecting on detection turns
+that OR into an AND: every payload must evade the detector simultaneously or the source is
+discarded.
 
-Defence in depth and a token-cost reduction. Not the control — a visible, plainly-worded
-injection passes it untouched and is handled by the sandbox.
+It is also the more honest inference. A page carrying Unicode tag-block characters is not a
+page with a formatting problem; it is a page doing something no legitimate publisher does.
+Continuing to trust the rest of it is unjustified.
+
+### Two rule classes, because most hidden text is benign
+
+Rejecting on *any* hidden element would reject most of the web — screen-reader text, cookie
+banners, collapsed navigation, and decorative `aria-hidden` icons are everywhere. The
+detector is therefore split by the question *would a legitimate publisher ever do this?*
+
+**Strip-class** — common in benign pages, removed quietly:
+
+- `<script>`, `<style>`, `<noscript>`, `<template>`, `<svg>`, HTML comments;
+- elements hidden by `display:none`, `visibility:hidden`, the `hidden` attribute, or
+  `aria-hidden="true"`;
+- attribute-borne text (`alt`, `title`, `placeholder`, `data-*`) and `<meta>` content, which
+  are simply not extracted;
+- whitespace runs.
+
+**Reject-class** — essentially never legitimate, and any single hit discards the source:
+
+- characters from the Unicode Tag block (U+E0000–U+E007F), which exist to smuggle invisible
+  ASCII and have no legitimate use in page text;
+- bidi override characters (U+202A–U+202E, U+2066–U+2069) in a document that is not
+  genuinely bidirectional;
+- zero-width characters (U+200B–U+200D, U+FEFF) appearing *inside* words rather than at
+  legitimate break points;
+- text rendered invisible by adversarial means rather than structural ones — zero or
+  near-zero font size, `opacity:0`, off-screen absolute positioning, foreground matching
+  background;
+- any of the above discovered *after* a first normalisation pass; see below.
+
+### Two-pass, to a fixed point — and non-idempotence is itself a signal
+
+Single-pass strip-and-continue filters have a classic evasion: `<scr<script>ipt>` becomes
+`<script>` *because* the filter ran once. Unicode normalisation has the same shape — NFKC
+can synthesise sequences that were not present before it ran, so a detector that only looked
+at the original input misses them.
+
+So: apply normalisation and stripping repeatedly until the output stops changing, and
+**re-run the reject-class detector on each pass, including the last.**
+
+Then the cheap, high-signal rule that falls out of it:
+
+> **If the document was not already at its fixed point — if a second pass changed anything a
+> reject-class rule cares about — reject the source.**
+
+Legitimate content is idempotent under sanitisation. Content that only becomes clean after
+being cleaned twice was constructed to survive being cleaned once.
+
+### What this does and does not cover
+
+This layer defeats *hidden* injection, and the two-pass discipline defeats *evasion of these
+rules*. It does not extend coverage to techniques with no rule at all, and it does nothing
+whatsoever about plainly visible, well-formed prose — which is indistinguishable from
+legitimate content by any deterministic test, and is handled by the sandbox rather than here.
+
+### Assume the mechanism is known
+
+This service is AGPL-3.0: anyone who can use it over the network is entitled to its source,
+so the sanitiser's rules are public by licence, not by accident. The bypass techniques are
+published anyway, in every prompt-injection paper. Design as though the attacker has read
+`scrub_in.py`, because they can.
+
+The one real asymmetry in our favour: an attacker gets **no oracle**. They cannot see whether
+a given page passed, so they cannot iterate a bypass against this instance — they can only
+spray known techniques and hope. Reject-on-detection is what makes that expensive, because a
+spray of many techniques is now *more* likely to be caught, not less.
 
 ## ② Quarantined Distillation
 
@@ -214,6 +286,11 @@ raw HTML tags; control, zero-width, and bidi characters; anything past the lengt
 
 **Then assert, and fail closed:** no URL-shaped substring may survive. If one does, drop the
 document rather than repair it.
+
+**Same fixed-point discipline as ①.** Strip repeatedly until the output stops changing, and
+re-run the assertion on each pass — `htt<b>p</b>s://` and zero-width-split URLs are the same
+strip-once evasion in a different costume. A distillation that needed a second pass is
+dropped, not returned.
 
 **Plain text only.** Whitelisting beats blacklisting markdown syntaxes, a distillation needs
 no formatting, and markdown is not the only renderer sink — KaTeX has been an exfiltration
@@ -289,14 +366,29 @@ private space, slow responses. Prove no cookie, credential, or caller header is 
 
 **Acceptance:** the adversarial URL suite fails closed with no network access in tests.
 
-### Task 4: Input scrub and corpus
+### Task 4: Input scrub and corpora
 
-One corpus page per rule: HTML comment, `display:none`, zero-opacity, off-screen,
-white-on-white, `aria-hidden`, `alt`/`title`, `<meta>`, Unicode tag smuggling, zero-width
-splitting, bidi override. Assert the payload is gone **and** legitimate visible text
-survives. Benchmark on large real pages.
+**Reject corpus** — one page per reject-class rule: Unicode tag smuggling, bidi override,
+in-word zero-width, zero-size and zero-opacity text, off-screen positioning, white-on-white.
+Assert the whole source is rejected, not cleaned.
 
-**Acceptance:** every corpus payload removed, visible content preserved.
+**Strip corpus** — HTML comment, `display:none`, `aria-hidden`, `alt`/`title`, `<meta>`.
+Assert the payload is gone **and** legitimate visible text survives.
+
+**Evasion corpus** — nested payloads (`<scr<script>ipt>`), sequences that only appear after
+NFKC normalisation, and reject-class characters revealed by a first stripping pass. Assert
+the fixed-point loop catches each, and that needing a second pass rejects the source.
+
+**False-positive corpus — the one that decides whether this ships.** Real pages using
+screen-reader-only text, cookie banners, collapsed navigation, decorative `aria-hidden`
+icons, and genuinely bidirectional content (Hebrew, Arabic). Assert none is rejected. A
+detector that rejects the ordinary web is not a security control, it is an outage.
+
+Benchmark on large real pages.
+
+**Acceptance:** reject-class payloads discard the source, strip-class payloads are removed
+with visible text intact, evasion attempts are caught at the fixed point, and no
+false-positive page is rejected.
 
 ### Task 5: Output scrub and corpus — the control
 
@@ -308,6 +400,8 @@ zero-width-split URL, bidi-obscured URL, oversized field.
 - [ ] Assert the fail-closed path drops rather than emitting repaired text.
 - [ ] Property test: for generated text containing a URL in any position, the output either
       contains no URL or the document is dropped. No third outcome.
+- [ ] Fixed-point evasion: split, tag-wrapped, and zero-width-obscured URLs are caught on a
+      later pass, and needing a later pass drops the document.
 
 **Acceptance:** the render-side exfiltration channel is closed by test, not by argument.
 
@@ -333,8 +427,10 @@ open decisions, with query and fragment stripped and destinations logged.
 
 ### Task 8: Observability
 
-Counters for fetches by outcome, scrub-rule hits, **output-scrub drops**, blocked
-destinations, and `fetch_url` calls by host. Histograms for fetch, distil, scrub duration.
+Counters for fetches by outcome, strip-rule hits, **source rejections by reject-class rule**,
+**output-scrub drops**, blocked destinations, and `fetch_url` calls by host. Source rejections
+are both a security signal and the false-positive alarm — a sustained rise after a rule change
+means the detector has started eating the ordinary web. Histograms for fetch, distil, scrub duration.
 Output-scrub drops and novel `fetch_url` hosts are the security signals — both alertable.
 Assert URLs, queries, questions, page content, distillations, tokens, and user identifiers
 never become metric labels or ordinary log fields.
@@ -390,9 +486,9 @@ ordinary chat stream, and no documented setting for that was found. Revisit on e
 | Contract | OpenAPI conformance, unknown fields, bounds, no URL field in any response schema |
 | Handles | Forgery, expiry, tampering, cross-call reuse, attacker-chosen destination |
 | Fetch | Scheme, address, redirect, rebinding, size, decompression, type, timeout |
-| Input scrub | Full corpus removed, visible text preserved, performance bounded |
+| Input scrub | Reject corpus discards source, strip corpus preserves visible text, evasion caught at fixed point, **false-positive corpus passes clean** |
 | Distillation | Bounded output/time/concurrency, budget exhaustion, question cannot alter policy, **no raw-text fallback on any path** |
-| Output scrub | Full corpus produces no surviving URL; fail-closed drops; property test |
+| Output scrub | Full corpus produces no surviving URL; fail-closed drops; fixed-point evasion; property test |
 | Service | Auth, typed failures, provider outage, `fetch_url` disabled path |
 | Observability | Cardinality and redaction assertions; drop and novel-host metrics emitted |
 | End to end | A real question through OpenWebUI, with native web search off and `open-webui` egress denied |
@@ -417,7 +513,11 @@ ordinary chat stream, and no documented setting for that was found. Revisit on e
    channel partly open. Disabled, the boundary is tight and pasted URLs are unsupported.
    Recommendation: ship it disabled, enable if the absence proves annoying.
 4. Handle expiry, and whether a handle is single-use.
-5. Is per-call latency acceptable with a model call in the fetch path, and what is
+5. How aggressive may the reject-class be before false positives make the tool annoying?
+   Start strict, measure the rejection rate against the false-positive corpus and real use,
+   and loosen only with evidence. Rejecting a legitimate page costs an answer; admitting a
+   hostile one costs more.
+6. Is per-call latency acceptable with a model call in the fetch path, and what is
    OpenWebUI's tool-call timeout on the deployed version?
 
 ## Completion Criteria

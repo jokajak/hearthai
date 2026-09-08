@@ -283,6 +283,13 @@ disabled by default.
 - no tools, memory, conversation history, or credentials in the quarantined model beyond its
   own budgeted LiteLLM key;
 - stages ① and ③ are deterministic code, never a prompt and never a model checking a model;
+- detection in stage ① rejects the whole source rather than cleaning it, so every payload on
+  a page must evade the detector at once; rejection reasons are never returned, since a
+  reason is a bypass oracle;
+- both scrubs run to a fixed point, and content that only becomes clean on a second pass is
+  rejected — legitimate content is idempotent under sanitisation;
+- the sanitiser is assumed public (AGPL-3.0), so nothing rests on the attacker not knowing
+  the rules;
 - no durable state, volume, or cache; handles are signed, not stored;
 - no Kubernetes API access or service-account token;
 - no path to `hearthmem` or cluster services;
