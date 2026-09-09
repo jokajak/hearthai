@@ -1,9 +1,22 @@
 # HearthAI Roadmap
 
 **Status:** authoritative capability roadmap<br>
-**Last updated:** 2026-09-08<br>
+**Last updated:** 2026-09-09<br>
 **Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)<br>
 **Design detail:** [`superpowers/specs/2026-08-30-capability-roadmap-design.md`](superpowers/specs/2026-08-30-capability-roadmap-design.md)
+
+## Deployment trust model
+
+HearthAI is intended to run locally in a private environment with a trusted server operator.
+The operator can access stored memory and conversations. Operator-unreadable memory and privacy
+isolation between mutually untrusted tenants are out of scope, not deferred release requirements.
+Personal context remains separate between users in normal application use, and shared writes
+still require approval of the exact content and destination.
+
+This trust applies to the operator, not to models, tools, repository code, or fetched content.
+Authentication, scoped access, credential protection, sandboxed execution, and action approvals
+remain required. Local deployment does not require local inference: a configured hosted model
+provider still receives the context sent to it.
 
 ## Current priority correction — 2026-09-08
 
@@ -280,7 +293,6 @@ No near-term version promises:
 - household roles or guardianship;
 - account recovery;
 - user deprovisioning;
-- operator-unreadable private memory;
 - automatic discovery of other people.
 
 These are introduced only if 0.2 proves capability-based shared stores valuable and exposes concrete limitations.

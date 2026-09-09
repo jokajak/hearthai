@@ -2,9 +2,10 @@
 
 An AI that serves a group of people rather than one person, reachable wherever they already are.
 
-Everyone who uses it has a private memory nobody else can reach — not other members, not whoever
-runs the server — and shares what they choose to by putting it in a memory store they invite
-others into.
+HearthAI is intended to run locally in a private environment operated by someone the household
+trusts. Each person's memory is separate in normal use, and sharing with other people is
+deliberate. The server operator can access stored data; protecting memory from that operator or
+providing privacy isolation between mutually untrusted tenants is outside HearthAI's scope.
 
 **Memory is what makes it worth more than a chatbot.** A model without context can answer
 questions; it cannot notice that the dentist appointment collides with a soccer match, or that a
@@ -60,7 +61,7 @@ flowchart TB
         direction TB
         GW["<b>Gateways</b><br/>CLI · Mattermost · Buzz · web · phone<br/><i>the CLI runs on your machine —<br/>same system, same stores</i>"]:::ui
         CORE["<b>Session</b><br/>runs as one person<br/>persona = a system prompt"]:::core
-        PRIV[("<b>Alice's private store</b><br/><i>never shareable</i>")]:::priv
+        PRIV[("<b>Alice's personal store</b><br/><i>separate in normal use</i>")]:::priv
         SH1[("<b>Family</b><br/>a memory store Alice<br/>was invited into")]:::shared
         SH2[("<b>Trip planning</b><br/>another one")]:::shared
         INF["<b>Inference engine</b><br/>one interface, pluggable"]:::inf
@@ -137,10 +138,11 @@ something a person turns on for themselves rather than a default.
 
 Everything else in this document is negotiable. These are not:
 
-1. **A private memory store is private.** Not shareable by invitation, by an administrator, or by
-   whoever runs the server. If this turns out to be inconvenient, the inconvenience wins.
-2. **Sharing is deliberate.** Nothing lands where other people can read it because the system
-   decided it should.
+1. **Personal context stays separate in normal use.** Another person's session does not receive
+   it automatically. This is an application boundary within a trusted local deployment, not a
+   guarantee against server-operator access.
+2. **Sharing is deliberate.** Nothing lands in a shared memory store because the system
+   decided it should; a person approves the content and destination.
 3. **Access follows the person, not the prompt.** Whatever a persona is doing, it reaches what its
    user reaches.
 
@@ -165,8 +167,8 @@ The honest list. These are not edge cases; several go to whether the idea works 
   real credentials are in play.
 - **Whether learned procedures are safe to share** once they carry executable code, and what
   happens as they get revised.
-- **How families with children work.** Private-means-private and guardianship pull in opposite
-  directions, and nothing here reconciles them.
+- **How families with children work.** Guardian visibility in the application needs an explicit
+  household policy. Trusting the server operator does not define that policy.
 - **Whether any of this needs to be built.** Several existing projects overlap heavily. The
   household-shaped multi-user memory is the part that seems missing; that judgement is worth
   rechecking before writing much code.
@@ -178,9 +180,9 @@ The shape above is where this is going. What exists now is the smallest useful p
 
 The bet is that the household layer does not need its own agent. Run an existing one per person —
 [Hermes](https://github.com/NousResearch/hermes-agent) supports a profile per person, each with
-isolated memory, sessions, skills, and credentials — and everyone's private memory is private by
-construction, because it lives in a separate process on a separate home directory. What is missing
-between those agents is a way to share, and that is a skill.
+separate memory, sessions, skills, and credentials. Separate profiles keep personal context apart
+in normal use; they do not make it unreadable to the machine's operator. What is missing between
+those agents is a way to share, and that is a skill.
 
 | | |
 |---|---|
