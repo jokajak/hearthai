@@ -46,6 +46,19 @@ localhost or a shared volume. Commit content remains worker-controlled by design
 the branch, lack of merge authority, separate publisher, and audit. The GitHub App private key
 remains outside every pod.
 
+## Deployment trust model
+
+HearthAI is intended to run locally in a private environment with a trusted server operator.
+The operator can access stored memory and conversations. Operator-unreadable memory and privacy
+isolation between mutually untrusted tenants are out of scope, not deferred release requirements.
+Personal context remains separate between users in normal application use, and shared writes
+still require approval of the exact content and destination.
+
+This trust applies to the operator, not to models, tools, repository code, or fetched content.
+Authentication, scoped access, credential protection, sandboxed execution, and action approvals
+remain required. Local deployment does not require local inference: a configured hosted model
+provider still receives the context sent to it.
+
 ## Product boundaries
 
 ```text
@@ -376,7 +389,6 @@ No numbered release promises:
 - invitations and verified membership;
 - household roles or guardianship;
 - account recovery and deprovisioning;
-- operator-unreadable private memory;
 - permanent personal-memory ownership;
 - automatic discovery of other people.
 

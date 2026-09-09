@@ -162,7 +162,7 @@ No workflow engine participates in synchronous save, recall, list, authenticatio
 
 The first increment is self-hosted and operator-trusted. Josh's personal memory is centralized so Claude Code and OpenWebUI can access it. The operator can read stored plaintext.
 
-This deliberately relaxes the current README's aspirational invariant that a private store is unreadable by the server operator. The design does not claim end-to-end encryption. It preserves a storage and contract boundary that permits encryption later without making encryption part of the continuity proof.
+The original exploration treated operator trust as a first-increment compromise. The 2026-09-09 deployment decision makes it the project trust model: HearthAI runs locally in a private environment with a trusted operator. Operator-unreadable memory is out of scope, not a later continuity milestone. This archived design does not claim end-to-end encryption.
 
 ### Host keys
 
@@ -383,7 +383,7 @@ Improve the smallest failing layer:
 - add semantic retrieval only after captured paraphrase misses justify it;
 - add graph storage only after a recurring relationship query requires multi-hop traversal or graph updates;
 - add n8n only after a repeated asynchronous workflow requires scheduling, retries, external integrations, or human approval;
-- consider end-to-end encryption as a separate architecture project when operator-unreadable storage becomes a current requirement.
+- operator-unreadable storage is outside the current project scope under the trusted local deployment model.
 
 No later component is an automatic milestone.
 

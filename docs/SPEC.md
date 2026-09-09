@@ -2,7 +2,12 @@
 
 Status: interview-validated, pre-design. This captures **what the system does and how it behaves**, not how it is implemented. Decisions marked ⏸ are explicitly deferred; ⚠ marks known risks accepted with eyes open.
 
-> The [README](../README.md) is the implementation-side view of this document: the same behavior, decomposed into the six components that will carry it. Section numbers here are stable — the README links to them.
+> This is an older behavioral exploration. [ROADMAP.md](ROADMAP.md) and
+> [ARCHITECTURE.md](ARCHITECTURE.md) define the current scope and component boundaries.
+> The deployment trust model was reconciled on 2026-09-09: HearthAI runs locally in a private
+> environment with a trusted operator who can access stored data. Operator-unreadable memory
+> and privacy isolation between mutually untrusted tenants are out of scope. Personal context
+> separation in the application and deliberate sharing remain goals.
 
 ---
 
@@ -35,7 +40,7 @@ It is one entity across modalities: work done at the terminal Tuesday is known t
 
 - **Format: OKF bundles** — markdown + YAML frontmatter, self-describing, `cat`-able, diffable. One bundle per space.
 - **Retrieval: QMD** over the bundles. No vector/graph database in MVP. ⏸ Add real retrieval infrastructure only when retrieval demonstrably misses; Neo4j was considered and could not be justified by a concrete query.
-- **Every user has exactly one private memory store, created with the account, that can never be shared** — no invitation, no admin override, no operator read. Unshareability is a property of the store, not a permission that could later be granted.
+- **Personal memory is scoped to its user in normal application use.** Sharing selected content into a shared store requires approval. The trusted server operator can access stored data; this is not an operator-resistant privacy boundary. The current roadmap leaves personal-memory ownership unresolved.
 - **Shared memory stores are created by users, who invite other users in.** Membership is the whole access rule. One mechanism serves a household store, a couple's finances, a project with a colleague, or a trip with friends.
 - A session reads the user's private memory store plus every memory store they are a member of — no query-time filtering of stores they do not hold, because those are unreachable. Sparse and stale shared context is accepted; reducing sharing friction is future work. ⏸
 - `log.md` per bundle provides the audit trail; git history provides revert.
@@ -58,7 +63,7 @@ It is one entity across modalities: work done at the terminal Tuesday is known t
 - **A persona reads exactly what its user holds** — their private memory store plus every memory store they are a member of. Read-gating by persona would only degrade answers: it is the same human, in the same session, with the same rights. The sole access boundary is *between users*, enforced on verified identity and memory store membership.
 - **Per-persona tagging** (frontmatter): every write carries the tag of the persona that produced it. Tags are provenance — attribution, sharing candidacy, revert granularity, relevance ordering — and are never consulted for access.
 - **Writes land in the user's own private memory store.** Anything destined for a shared memory store goes through human approval (§4.1.2), whichever persona was addressed.
-- ⚠ **Parental visibility rule — now in tension with the memory store model, see §11.7.** Originally: visibility follows the guardianship relationship, not system operation; parents have insight into their children's persona conversations, and adults' stores are private from each other. The first half no longer has a mechanism, because a private memory store can never be shared with anyone, including a parent. The second half holds by construction.
+- ⏸ **Parental visibility policy remains unresolved, see §11.7.** Personal context stays separate in normal application use. Any guardian-facing conversation access needs an explicit household policy; the trusted operator's infrastructure access does not automatically grant every parent that access through the application.
 
 ## 6. Orchestrator & Subagents — Security Model
 
@@ -106,11 +111,11 @@ Motivating threat: **prompt injection from arbitrary web content.**
 
 ## 10. Prior Art & Positioning
 
-**Decision: steal or incorporate — do not adopt either as the substrate.** Neither provides the load-bearing requirement: identity-mapped household multi-tenancy.
+**Decision: steal or incorporate — do not adopt either as the substrate.** Neither provides the load-bearing requirement: identity-aware household context and deliberate sharing.
 
 | Source | What it validates | What we take | What it lacks |
 |---|---|---|---|
-| **IronCurtain** (Provos) | The §6/§7 security model exists and works: policy-sandboxed MCP tool calls, allow/escalate/deny | Constitution-compiled policy; blessed-input trust mechanism; honest "limit clearly-unintended damage" framing for §11 | Multi-tenancy, identity mapping, memory model |
+| **IronCurtain** (Provos) | The §6/§7 security model exists and works: policy-sandboxed MCP tool calls, allow/escalate/deny | Constitution-compiled policy; blessed-input trust mechanism; honest "limit clearly-unintended damage" framing for §11 | Household identity mapping, shared-memory model |
 | **Hermes Agent** (Nous) | §2 same-entity-across-surfaces is achievable: one agent/one memory across Telegram, Signal, CLI, etc.; gateway for unattended scheduled runs; sandbox-backend abstraction (incl. SSH → laptop-as-endpoint) | Surface-gateway architecture pattern; subagent isolation pattern; SSH sandbox backend idea | Single-user to its core; no space partitioning, no OIDC identity, opaque memory vs OKF |
 
 **IronCurtain-as-component stays open**: it deliberately wraps standard, unmodified MCP servers, so using it as the enforcement runtime under our own orchestrator (option c) is compatible with this decision and should be evaluated during design, not now.
@@ -121,11 +126,11 @@ Motivating threat: **prompt injection from arbitrary web content.**
 
 1. **Taint tracking is the linchpin — and it now has a research-backed design.** Implement the CaMeL/FIDES pattern rather than a homegrown scheme: a **privileged planner** that sees only trusted (blessed) human input and generates the execution plan; **quarantined subagents** that process untrusted content (web, files, messages) with no tool access — the §7 read-only web subagent *is* the quarantined LLM; and a **deterministic reference monitor** that tracks data provenance through every operation and enforces policy at tool-call boundaries. Injection becomes a data-flow violation ("is this data allowed there?"), not a text-pattern detection problem ("does this look malicious?"). If taint propagation is leaky (e.g., web content summarized into "clean" text), the defense is theater — provenance must survive transformation, which is exactly what the CaMeL-style value-wrapping addresses. Known cost: this pattern constrains open-ended dynamic tool calling; accept the utility tax for tainted sessions. See also OpenClaw's CaMeL RFC (session-level taint: once any taint-source tool runs, all subsequent side-effect arguments are tainted) as a free design document.
 2. **Runtime enforcement must be real** — namespaces/containers/NetworkPolicy on hardware Josh controls, not prompt-level pleading. The cluster makes this enforceable; keep it that way.
-3. **Parental visibility into kids' partitions** is a trust decision inside the family, not a technical one — but it has a technical consequence: the enforcement layer must distinguish *parent-of* relationships from *operator-of* privileges, or spousal privacy is only conventional. Revisit visibility scope as children age.
+3. **Parental visibility into kids' partitions** is a household policy decision. Application access should reflect explicit guardian permissions, while infrastructure access remains available to the trusted operator. There is no promise of spousal privacy from that operator. Revisit application visibility as children age.
 4. **"Background getting smarter" now has an owner, and is still unproven.** Autonomous writes remove the approval bottleneck but not the entropy. The owner is **scheduled analysis**: periodic jobs over the accumulated corpus that handle dedup, contradiction resolution and staleness, and that produce proposals for sharing, for routines worth automating, and for skills worth saving — **Agent Skills** in the open [agentskills.io](https://agentskills.io) format, which live in memory stores and are git-versioned there without being memory (see the [README](../README.md#how-it-is-meant-to-feel)). All three produce proposals, never actions, and proposals queue until a human answers. What remains unproven is whether the analyses are any good — that takes months of real writes to learn, not a design decision.
 5. **Same-entity-across-modalities** implies shared session/state infrastructure on the cluster from day one — this is the actual hard engineering, more than any AI piece.
 6. **Credential isolation is a hard requirement, not a nicety.** Secrets (API keys, OAuth tokens, service credentials) never enter any subagent's context or environment — display-layer redaction is not isolation (a documented failure mode in contemporary agents). The runtime brokers access: subagents receive scoped, revocable, short-lived tokens minted per-spawn, and the broker holds the real credentials outside every container boundary. Model: IronCurtain's credentials-never-enter-the-container OAuth handling; ZeroClaw's encrypted-secrets-and-allowlists-by-default posture.
-7. ⏸ **Guardian visibility has no mechanism in the memory store model, deliberately.** §5's parental-insight rule assumed operator-provisioned spaces. With per-user private memory stores that can never be shared, a child's private store is private from their parents too. Either that is the right answer and §5's visibility rule is dropped, or guardianship needs an explicit exception — which would be the only override to the never-shareable rule and would weaken it for everyone. Undecided; decide before onboarding a second person.
+7. ⏸ **Guardian visibility needs an explicit application policy.** The local deployment trusts its operator; it does not promise memory that parents operating the server cannot read. Which guardians may view a child's conversations through the application remains a separate decision before enabling that capability.
 8. **What licenses the orchestrator to speak first: a pending proposal, and nothing else.** Scheduled analysis is the only thing that generates one, so the entity's ability to initiate is bounded by what those jobs can propose, and every proposal resolves to a human answer or expires. Three things stay open inside that: how a routine's approval scopes what it may subsequently *do* without asking again (a routine is a larger grant than a shared memory); whether interactive prompts need a budget so notification volume cannot creep; and how revisions to an already-shared skill are handled, since shareability is approved once at creation while the skill itself keeps changing — and a revision can alter bundled scripts that other members' agents execute. Intent inference — scoring a signal for urgency, novelty and risk to choose act / ask / watch / ignore, per the OpenAGI reference in §12, and the hook-driven approach PAI demonstrates — lives as system prompts and hook points rather than as machinery.
 
 ## 12. References
