@@ -38,7 +38,7 @@
       "properties": {
         "baseUrl": {
           "type": "string",
-          "pattern": "^https?://[^\\s;]+$"
+          "pattern": "^$|^https?://[^\\s;]+$"
         },
         "apiKeySecret": {
           "type": "object",

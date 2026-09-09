@@ -1,0 +1,155 @@
+# The `chatgpt/` provider is the CODEX backend, not chatgpt.com: it talks to
+# https://chatgpt.com/backend-api/codex using Codex's client id, identifies
+# as originator `codex_cli_rs`, and prepends the Codex CLI system prompt to
+# every request. So the servable set is whatever Codex offers this
+# subscription — not what the ChatGPT app's model picker shows.
+#
+# LiteLLM's price/context map does NOT gate availability: the responses
+# transformation passes `model` straight through with no local validation,
+# so a model absent from the map still works and merely reports zero cost.
+# The map has no `chatgpt/` entries past gpt-5.4-pro and is not worth
+# consulting for this. To see what this route can actually reach, run
+# `/model` in the codex CLI — that list is authoritative.
+#
+# Every entry sets mode: responses because the backend is native to the
+# Responses API and LiteLLM bridges Chat Completions onto it, which is what
+# Open WebUI speaks. Capability flags are set explicitly because LiteLLM
+# carries no `chatgpt/`-prefixed metadata to infer them from.
+model_list:
+  # Most capable — complex, demanding work. Only model here that accepts
+  # reasoning_effort: max.
+  - model_name: gpt-6-astra
+    model_info:
+      mode: responses
+      supports_reasoning: true
+      supports_xhigh_reasoning_effort: true
+      supports_max_reasoning_effort: true
+    litellm_params:
+      model: chatgpt/gpt-6-astra
+  # Reliable agentic workhorse — the everyday default.
+  - model_name: gpt-5.6-sol
+    model_info:
+      mode: responses
+      supports_reasoning: true
+      supports_xhigh_reasoning_effort: true
+    litellm_params:
+      model: chatgpt/gpt-5.6-sol
+  # Balanced agentic coding — tool-heavy and code-shaped work.
+  - model_name: gpt-5.6-terra
+    model_info:
+      mode: responses
+      supports_reasoning: true
+      supports_xhigh_reasoning_effort: true
+    litellm_params:
+      model: chatgpt/gpt-5.6-terra
+  # Fast and affordable — auxiliary tasks: summarisation, context
+  # compression, session titles.
+  - model_name: gpt-5.6-luna
+    model_info:
+      mode: responses
+      supports_reasoning: true
+      supports_xhigh_reasoning_effort: true
+    litellm_params:
+      model: chatgpt/gpt-5.6-luna
+  # Previous generation, kept as a known-good fallback.
+  - model_name: gpt-5.5
+    model_info:
+      mode: responses
+      supports_reasoning: true
+      supports_xhigh_reasoning_effort: true
+    litellm_params:
+      model: chatgpt/gpt-5.5
+  # Smallest and cheapest — simple, high-volume calls.
+  - model_name: gpt-5.4-mini
+    model_info:
+      mode: responses
+      supports_reasoning: true
+      supports_xhigh_reasoning_effort: true
+    litellm_params:
+      model: chatgpt/gpt-5.4-mini
+
+  # ---------------------------------------------------------------------
+  # Claude, via meridian — the same trick as `chatgpt/` above, other vendor.
+  #
+  # meridian holds Claude Code credentials on its PVC and serves them as a
+  # standard Anthropic Messages API on :3456. So LiteLLM speaks plain
+  # `anthropic/` to it and holds no Claude credential itself, exactly as it
+  # holds no OpenAI API key. Callers still only ever present a virtual key.
+  #
+  # ⚠️ DEAD UNTIL MERIDIAN IS LOGGED IN. There is no key this repo can
+  # inject — the login is interactive and one-time. See the plan doc's
+  # "meridian: logging it in" section. Unauthenticated, these entries 401
+  # and `background_health_checks` marks them unhealthy every 300s; that is
+  # noisy rather than harmful, but if meridian is going to sit logged out
+  # for a while, comment this block out rather than watch it fail.
+  #
+  # `api_base` carries no `/v1` suffix — LiteLLM's anthropic provider
+  # appends `/v1/messages` itself. The address is reachable only from this
+  # pod: meridian has no ingress, and its CiliumNetworkPolicy admits
+  # litellm and the kubelet and nothing else.
+  #
+  # `api_key` is meridian's own gate (MERIDIAN_API_KEY), not an Anthropic
+  # key. It arrives via the ExternalSecret and LiteLLM sends it as
+  # `x-api-key`, the Anthropic-standard header — which is what meridian's
+  # opt-in auth check is expected to read, though that was inferred from
+  # the API it emulates rather than read off its source. If a logged-in
+  # meridian still 401s, that header is the first thing to check; LiteLLM
+  # can send another via `extra_headers` on these entries.
+  #
+  # ⚠️ Cost reporting is wrong here by construction: LiteLLM prices these
+  # from its metered per-token map while the subscription is flat-rate.
+  # Read the spend column as usage weight, not dollars. Same caveat as the
+  # `chatgpt/` entries, which report zero for the opposite reason.
+  #
+  # The servable set is whatever Claude Code offers this subscription — run
+  # `/model` inside Claude Code to see it, the same way `/model` in the
+  # codex CLI is authoritative for the entries above.
+  # ---------------------------------------------------------------------
+
+  # Most capable — the one to reach for on hard or long-horizon work.
+  - model_name: claude-opus-5
+    model_info:
+      mode: chat
+      supports_reasoning: true
+    litellm_params:
+      model: anthropic/claude-opus-5
+      api_base: http://meridian.ai.svc.cluster.local:3456
+      api_key: os.environ/MERIDIAN_API_KEY
+  # Everyday workhorse — cheaper per token, fine for most conversation.
+  - model_name: claude-sonnet-5
+    model_info:
+      mode: chat
+      supports_reasoning: true
+    litellm_params:
+      model: anthropic/claude-sonnet-5
+      api_base: http://meridian.ai.svc.cluster.local:3456
+      api_key: os.environ/MERIDIAN_API_KEY
+  # Fast and small — auxiliary work: titles, summaries, classification.
+  - model_name: claude-haiku-4-5
+    model_info:
+      mode: chat
+      supports_reasoning: true
+    litellm_params:
+      model: anthropic/claude-haiku-4-5
+      api_base: http://meridian.ai.svc.cluster.local:3456
+      api_key: os.environ/MERIDIAN_API_KEY
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  # Virtual keys, budgets and spend live in Postgres, so they survive a pod
+  # restart and are not config-as-code. Deliberate: a per-person budget is
+  # an operational dial, not a deployment concern.
+  store_model_in_db: true
+  # Poll model health in the background rather than on every /health call,
+  # so probing does not spend subscription quota per scrape.
+  background_health_checks: true
+  health_check_interval: 300
+
+litellm_settings:
+  # Load-bearing here, not just tidiness: the ChatGPT subscription backend
+  # REJECTS max_tokens / max_output_tokens / max_completion_tokens and
+  # metadata. Clients send some of those, so without this requests fail.
+  drop_params: true
+  num_retries: 2
+  # Agent turns with large tool payloads are slow; the default is too tight.
+  request_timeout: 600

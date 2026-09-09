@@ -1,16 +1,17 @@
 # Deploy HearthAI as one release
 
 `deploy/charts/hearthai` is the household deployment entry point. It packages the
-pinned upstream Open WebUI image and the local hearthmem chart into one Helm
+pinned upstream Open WebUI and LiteLLM images and the local hearthmem chart into one Helm
 release. HearthAI owns their manifests, configuration, storage defaults, probes,
 and version compatibility. The standalone hearthmem chart remains available for
 CLI-only consumers.
 
 The cluster supplies namespace, DNS/TLS and ingress controller, storage classes or
-existing claims, authentication credentials, and an OpenAI-compatible LLM endpoint
-(such as LiteLLM). Neither LiteLLM nor the identity provider is bundled. There are
-no home-ops-specific domains, secret providers, or cluster addresses in the chart
-defaults.
+existing claims, authentication credentials, and the shared Postgres service.
+LiteLLM is bundled and Open WebUI's internal URL is generated automatically.
+The identity provider and Postgres are not bundled. The default proxy catalogue
+is copied exactly from home-ops, including its existing external Meridian address;
+it is not a newly selected or automatically refreshed model list.
 
 **Current capability boundary:** this deploys a working Open WebUI chat surface
 with its built-in personal memory and the existing shared-memory service. The
@@ -26,13 +27,17 @@ not install in-process tools as a substitute for the planned sandbox substrate.
 
 Start with [the site values example](examples/hearthai-values.yaml). It uses existing
 claim and secret names from the current deployment but placeholder public domains.
-For a fresh install, omit both `existingClaim` entries to create retained PVCs.
+For a fresh install, omit all three `existingClaim` entries to create retained PVCs.
 
 | Input | Purpose |
 | --- | --- |
 | `url` | HTTPS origin without a port, path, or trailing slash; drives ingress and OIDC callback |
 | `sessionSecret.name` / `.key` | Stable Open WebUI signing/encryption key |
-| `llm.baseUrl` | One OpenAI-compatible endpoint, including its `/v1` path |
+| `litellm.existingSecret` | Existing proxy/database Secret using the home-ops env contract |
+| `litellm.persistence` | Token claim, default 64Mi on nfs-csi, or an existing claim |
+| `litellm.ingress` | Optional proxy hostname/TLS for other clients and the admin UI |
+| `litellm.config` | Optional full config replacement; blank uses the exact bundled home-ops config |
+| `llm.baseUrl` | Only used with `litellm.enabled=false`; otherwise wired to the bundled Service |
 | `llm.apiKeySecret.name` / `.key` | One matching API key; use a nonempty placeholder for a keyless backend |
 | `auth.mode` | `oidc` (default) or `local`; never anonymous |
 | `auth.oidc.discoveryUrl` | Provider's HTTPS discovery URL |
@@ -49,6 +54,57 @@ keys rather than copying credentials into values or a ConfigMap. Default keys ar
 `WEBUI_SECRET_KEY`, `OPENAI_API_KEYS`, `OAUTH_CLIENT_ID`, and `OAUTH_CLIENT_SECRET`.
 Local mode instead requires `WEBUI_ADMIN_EMAIL` and `WEBUI_ADMIN_PASSWORD`.
 Do not commit actual credentials in site values.
+
+## Known-working home-ops proxy
+
+The source of truth for this import is home-ops commit
+[`6221eb6`](https://github.com/jokajak/home-ops/tree/6221eb6daa67f51c1aa84e3d43fe91486db7a4ee/kubernetes/apps/ai/litellm/app).
+`files/litellm-config.yaml` preserves the source ConfigMap's `config.yaml` value
+byte-for-byte, including comments. A regression test checks its SHA-256 and the
+rendered configuration. No upstream model discovery, renaming, or upgrades were
+performed for this import.
+
+- Proxy: `ghcr.io/berriai/litellm-database:v1.99.1`.
+- Database initializer: `ghcr.io/home-operations/postgres-init:18.6`.
+- Same amd64 placement, resources, startup/readiness/liveliness probes, arguments,
+  `STORE_MODEL_IN_DB=True`, and `CHATGPT_TOKEN_DIR=/token`.
+- OpenAI routes: `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`,
+  `gpt-5.5`, and `gpt-5.4-mini`, with their original `chatgpt/` provider identifiers,
+  Responses mode, and capability flags.
+- Same `drop_params: true`, two retries, 600-second timeout, database-backed model
+  storage, and 300-second background health checks.
+- Claude entries remain unchanged: `claude-opus-5`, `claude-sonnet-5`, and
+  `claude-haiku-4-5`, using the existing Meridian service and `MERIDIAN_API_KEY`.
+  Meridian is not deployed by this chart. Those routes still need the existing
+  logged-in Meridian service; for a different environment supply a full
+  `litellm.config` replacement rather than expecting it to appear automatically.
+
+The packaging changes Kubernetes resource names and internal service discovery,
+adds a configuration rollout checksum, disables service-account token mounting,
+and uses `Recreate` so token-cache writers never overlap during upgrades. The
+proxy's provider/model configuration and runtime pins are otherwise preserved.
+
+The same `litellm-secret` can be reused unchanged. Its environment contract is:
+
+| Keys | Purpose |
+| --- | --- |
+| `LITELLM_MASTER_KEY`, `LITELLM_SALT_KEY` | Existing proxy authority and encryption keys; preserve both during migration |
+| `UI_USERNAME`, `UI_PASSWORD` | Existing proxy administration credentials |
+| `DATABASE_URL` | Existing LiteLLM database URL, with appropriately escaped credentials |
+| `MERIDIAN_API_KEY` | Existing external Meridian gate, not an Anthropic credential |
+| `INIT_POSTGRES_DBNAME`, `INIT_POSTGRES_HOST`, `INIT_POSTGRES_USER`, `INIT_POSTGRES_PASS`, `INIT_POSTGRES_SUPER_PASS` | Existing postgres-init environment |
+
+Like home-ops, the init and application containers receive this Secret via
+`envFrom`. Secret creation and the shared database remain cluster inputs. Set
+`litellm.initDb.enabled=false` if the database/role is already provisioned and the
+initializer is intentionally unnecessary. The chart never creates a new virtual
+key or substitutes the proxy master key for Open WebUI's consumer key: preserve
+the existing database and `OPENAI_API_KEYS` Secret to keep that relationship.
+
+Reusing `litellm-token` preserves the existing ChatGPT OAuth login. A fresh token
+volume requires the same one-time interactive device-code login as home-ops;
+installing a chart cannot manufacture that subscription credential. No login or
+live model request is performed by this repository change.
 
 OIDC mode disables the password login form and local signup, enables OIDC account
 creation, and derives the redirect URI as `<url>/oauth/oidc/callback`. Register that
@@ -91,35 +147,48 @@ the Git source/chart reference with your pinned OCI chart source.
 ## Migrate from separate home-ops releases
 
 This repository does not change or reconcile home-ops automatically. Plan a short
-maintenance window; both services use one replica and `Recreate` to avoid concurrent
+maintenance window; all three services use one replica and `Recreate` to avoid concurrent
 writers. `ReadWriteOnce` alone does **not** prevent two pods on the same node from
 writing to SQLite or the git store.
 
-1. Back up both volumes. Record the current Open WebUI image version and session
+1. Back up the data volumes and LiteLLM database. Record the current Open WebUI image version and session
    secret, and confirm the claims are independently managed by home-ops (or arrange
    their retention before uninstalling their owning release). Keep the existing
    `WEBUI_SECRET_KEY` and OIDC client to preserve encrypted data and account identity.
+   Keep `litellm-secret`, the LiteLLM database, its master/salt keys, the Open WebUI
+   virtual key, and the existing `litellm-token` claim. Do not initialize a blank
+   proxy database for this cutover: it would discard existing virtual keys/budgets.
 2. Prepare complete site values with `openwebui.persistence.existingClaim` and
-   `hearthmem.persistence.existingClaim`. Claims must be in the new release's namespace.
+   `hearthmem.persistence.existingClaim`, plus `litellm.persistence.existingClaim`.
+   Claims must be in the new release's namespace.
    Keep the existing public URL and use the same WebUI image for the initial cutover.
-3. Suspend the old Flux HelmReleases and stop their pods. Suspension alone leaves
+3. Suspend the old Open WebUI, hearthmem, and LiteLLM Flux HelmReleases and stop their pods. Suspension alone leaves
    workloads running. Remove the old ingress route before enabling the new one;
    confirm no old writer can restart during cutover.
 4. Install the HearthAI release against those claims. Do not import the old workload
    objects into Helm ownership; the new release creates its own workloads and Services.
 5. Verify OIDC login, streaming chat against the configured LLM, old conversation
-   history, and hearthmem `/health` plus access to a known store. Update any external
+   history, LiteLLM readiness/model calls, and hearthmem `/health` plus access to a known store.
+   Open WebUI is wired to the new proxy Service automatically. Other in-cluster
+   consumers must switch to `hearthai-litellm:4000` (for release `hearthai`) or keep
+   using the existing proxy hostname through the new optional ingress. The
+   example preserves the `llm` hostname shape; update any Meridian network policy
+   selectors that require the old release instance rather than the `litellm` app label.
+   Update any external
    CLI consumers to the bundled hearthmem Service name (`hearthai-hearthmem` with
    release name `hearthai`, unless overridden).
 6. Remove the retired release definitions from home-ops, preserving the PVCs and
    Secrets. That later repository change should leave one HearthAI release and its
-   environment inputs, not separate Open WebUI manifests.
+   environment inputs, not separate Open WebUI or LiteLLM manifests. Keep Meridian
+   and shared Postgres in place; they have not moved into this release.
 
 Before resuming an old release for rollback, stop the new writers and remove its
 route. Open WebUI database migrations may make image downgrades unsafe; restore the
 pre-upgrade backup when necessary. Helm rollback does not roll back volume contents.
 Chart-created claims carry `helm.sh/resource-policy: keep`; existing claims remain
-externally owned. Back up both Open WebUI data and hearthmem; their formats differ.
+externally owned. Back up Open WebUI data, hearthmem, and the LiteLLM database;
+their formats differ. The token claim contains a live credential; its loss requires
+login again rather than restoring conversation data.
 
 The Open WebUI image retains upstream branding and its upstream license. HearthAI
 packages the image without forking or relabeling it. The stock image runs as root;

@@ -1,5 +1,6 @@
 """Deployment contracts, tested on rendered Kubernetes objects."""
 import os
+import hashlib
 from pathlib import Path
 import subprocess
 
@@ -30,13 +31,13 @@ def web(docs):
 
 
 def config(docs):
-    return next(d for d in docs if d['kind'] == 'ConfigMap')['data']
+    return next(d for d in docs if d['kind'] == 'ConfigMap' and 'WEBUI_URL' in d['data'])['data']
 
 
 def test_cohesive_release_and_oidc():
     docs = render()
     deployments = [d for d in docs if d['kind'] == 'Deployment']
-    assert len(deployments) == 2
+    assert len(deployments) == 3
     for dep in deployments:
         assert dep['spec']['replicas'] == 1
         assert dep['spec']['strategy']['type'] == 'Recreate'
@@ -60,7 +61,7 @@ def test_cohesive_release_and_oidc():
     assert cfg['ENABLE_LOGIN_FORM'] == 'false'
     assert cfg['ENABLE_PERSISTENT_CONFIG'] == 'false'
     assert cfg['ENABLE_CODE_EXECUTION'] == cfg['ENABLE_CODE_INTERPRETER'] == 'false'
-    ingresses = [d for d in docs if d['kind'] == 'Ingress']
+    ingresses = [d for d in docs if d['kind'] == 'Ingress' and d['metadata']['name'] == dep['metadata']['name']]
     assert len(ingresses) == 1
     ingress = ingresses[0]['spec']
     assert ingress['rules'][0]['host'] == 'chat.example.com'
@@ -80,14 +81,14 @@ def test_local_bootstrap_without_oidc():
 
 
 def test_new_retained_claims():
-    docs = render('--set', 'openwebui.persistence.existingClaim=,hearthmem.persistence.existingClaim=')
+    docs = render('--set', 'openwebui.persistence.existingClaim=,hearthmem.persistence.existingClaim=,litellm.persistence.existingClaim=')
     claims = [d for d in docs if d['kind'] == 'PersistentVolumeClaim']
-    assert len(claims) == 2
+    assert len(claims) == 3
     for claim in claims:
         assert claim['metadata']['annotations']['helm.sh/resource-policy'] == 'keep'
         assert claim['spec']['accessModes'] == ['ReadWriteOnce']
     for dep in [d for d in docs if d['kind'] == 'Deployment']:
-        name = dep['spec']['template']['spec']['volumes'][0]['persistentVolumeClaim']['claimName']
+        name = next(v['persistentVolumeClaim']['claimName'] for v in dep['spec']['template']['spec']['volumes'] if 'persistentVolumeClaim' in v)
         assert name in {c['metadata']['name'] for c in claims}
 
 
@@ -98,7 +99,7 @@ def test_explicit_empty_storage_class():
 
 
 def test_ephemeral_and_external_ingress():
-    docs = render('--set', 'openwebui.persistence.enabled=false,hearthmem.persistence.enabled=false,ingress.enabled=false')
+    docs = render('--set', 'litellm.enabled=false,llm.baseUrl=http://external:4000/v1,openwebui.persistence.enabled=false,hearthmem.persistence.enabled=false,ingress.enabled=false')
     assert not any(d['kind'] in ['PersistentVolumeClaim', 'Ingress'] for d in docs)
     for dep in [d for d in docs if d['kind'] == 'Deployment']:
         assert dep['spec']['template']['spec']['volumes'][0]['emptyDir'] == {}
@@ -107,12 +108,13 @@ def test_ephemeral_and_external_ingress():
 def test_configuration_rolls_pod():
     def checksum(docs):
         return web(docs)['spec']['template']['metadata']['annotations']['checksum/config']
-    assert checksum(render()) != checksum(render('--set', 'llm.baseUrl=http://different:4000/v1'))
+    assert checksum(render()) != checksum(render('--set', 'litellm.enabled=false,llm.baseUrl=http://different:4000/v1'))
 
 
 @pytest.mark.parametrize('setting', [
     'url=http://chat.example.com', 'url=https://chat.example.com/path',
-    'sessionSecret.name=', 'llm.baseUrl=', 'llm.apiKeySecret.name=',
+    'sessionSecret.name=', 'litellm.enabled=false,llm.baseUrl=', 'llm.apiKeySecret.name=',
+    'litellm.existingSecret=', 'litellm.ingress.enabled=true,litellm.ingress.host=',
     'auth.mode=anonymous', 'auth.oidc.discoveryUrl=',
     'auth.oidc.credentialsSecret.name=',
     'auth.mode=local,auth.local.adminSecret.name=',
@@ -129,4 +131,70 @@ def test_packaged_chart_is_self_contained(tmp_path):
     subprocess.run([HELM, 'package', str(CHART), '--destination', str(tmp_path)], check=True, capture_output=True)
     archive = next(tmp_path.glob('hearthai-*.tgz'))
     docs = render(chart=archive)
+    assert len([d for d in docs if d['kind'] == 'Deployment']) == 3
+    assert next(d for d in docs if d['kind'] == 'ConfigMap' and 'config.yaml' in d['data'])['data']['config.yaml'] == (CHART / 'files/litellm-config.yaml').read_text()
+
+
+def proxy(docs):
+    return next(d for d in docs if d['kind'] == 'Deployment'
+                and d['metadata']['labels']['app.kubernetes.io/name'] == 'litellm')
+
+
+def test_exact_home_ops_catalogue():
+    # Source: home-ops 6221eb6, app/configmap.yaml data.config.yaml.
+    raw = (CHART / 'files/litellm-config.yaml').read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == 'ad67fa2a12dd671629f9b10df69110a42484cc561232897d46c4cac59f4c0c09'
+    docs = render()
+    rendered = next(d['data']['config.yaml'] for d in docs if d['kind'] == 'ConfigMap' and 'config.yaml' in d['data'])
+    assert rendered == raw.decode()
+    models = yaml.safe_load(rendered)['model_list']
+    assert [m['litellm_params']['model'] for m in models[:6]] == [
+        'chatgpt/gpt-6-astra', 'chatgpt/gpt-5.6-sol', 'chatgpt/gpt-5.6-terra',
+        'chatgpt/gpt-5.6-luna', 'chatgpt/gpt-5.5', 'chatgpt/gpt-5.4-mini',
+    ]
+    assert all(m['model_info']['mode'] == 'responses' for m in models[:6])
+
+
+def test_proxy_runtime_and_internal_wiring():
+    docs = render()
+    dep = proxy(docs)
+    pod = dep['spec']['template']['spec']
+    assert pod['nodeSelector'] == {'kubernetes.io/arch': 'amd64'}
+    init = pod['initContainers'][0]
+    assert init['image'] == 'ghcr.io/home-operations/postgres-init:18.6'
+    app = pod['containers'][0]
+    assert app['image'] == 'ghcr.io/berriai/litellm-database:v1.99.1'
+    assert app['args'] == ['--config', '/config/config.yaml', '--port', '4000']
+    assert app['envFrom'] == init['envFrom'] == [{'secretRef': {'name': 'litellm-secret'}}]
+    assert {e['name']: e['value'] for e in app['env']} == {'STORE_MODEL_IN_DB': 'True', 'CHATGPT_TOKEN_DIR': '/token'}
+    assert app['readinessProbe']['httpGet']['path'] == '/health/readiness'
+    assert app['livenessProbe']['httpGet']['path'] == '/health/liveliness'
+    assert app['startupProbe']['failureThreshold'] == 60
+    assert next(v for v in pod['volumes'] if v['name'] == 'token')['persistentVolumeClaim']['claimName'] == 'litellm-token'
+    assert config(docs)['OPENAI_API_BASE_URLS'] == f"http://{dep['metadata']['name']}:4000/v1"
+    # Imported virtual key stays the consumer credential; never use master key.
+    env = web(docs)['spec']['template']['spec']['containers'][0]['env']
+    assert next(e for e in env if e['name'] == 'OPENAI_API_KEYS')['valueFrom']['secretKeyRef'] == {'name': 'open-webui-secret', 'key': 'OPENAI_API_KEYS'}
+
+
+def test_external_proxy_escape_hatch():
+    docs = render('--set', 'litellm.enabled=false,llm.baseUrl=http://existing:4000/v1')
     assert len([d for d in docs if d['kind'] == 'Deployment']) == 2
+    assert config(docs)['OPENAI_API_BASE_URLS'] == 'http://existing:4000/v1'
+    assert not any('-litellm' in d['metadata']['name'] for d in docs)
+
+
+def test_proxy_config_rollout_and_optional_database_init(tmp_path):
+    def checksum(docs):
+        return proxy(docs)['spec']['template']['metadata']['annotations']['checksum/config']
+    # Operator can relocate the external Meridian endpoint through full config.
+    original = (CHART / 'files/litellm-config.yaml').read_text()
+    override = tmp_path / 'values.yaml'
+    override.write_text(yaml.safe_dump({'litellm': {'config': original.replace('meridian.ai.svc.cluster.local', 'meridian.other.svc')}}))
+    assert checksum(render()) != checksum(render('-f', str(override)))
+    assert 'initContainers' not in proxy(render('--set', 'litellm.initDb.enabled=false'))['spec']['template']['spec']
+
+
+def test_flux_example_matches_helm_values():
+    source = list(yaml.safe_load_all((ROOT / 'deploy/examples/flux-hearthai.yaml').read_text()))
+    assert source[1]['spec']['values'] == yaml.safe_load(EXAMPLE.read_text())

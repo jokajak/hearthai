@@ -1,0 +1,9 @@
+{{- if .Values.litellm.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hearthai.fullname" . }}-litellm
+data:
+  config.yaml: |
+    {{- default (.Files.Get "files/litellm-config.yaml") .Values.litellm.config | nindent 4 }}
+{{- end }}

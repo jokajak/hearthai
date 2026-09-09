@@ -27,8 +27,9 @@ AGPL-3.0.
 
 ## Deploy the household application
 
-[`deploy/charts/hearthai`](deploy/charts/hearthai) deploys Open WebUI and hearthmem
-as one Helm release. Supply the public URL, authentication, LLM endpoint, Secret
+[`deploy/charts/hearthai`](deploy/charts/hearthai) deploys Open WebUI, LiteLLM, and hearthmem
+as one Helm release. LiteLLM uses the known-working home-ops image and model catalogue,
+and Open WebUI is wired to it automatically. Supply the public URL, authentication, database/Secret
 references, and storage inputs; HearthAI owns the application manifests and pins.
 See [deployment and migration instructions](deploy/README.md) and
 [example site values](deploy/examples/hearthai-values.yaml).

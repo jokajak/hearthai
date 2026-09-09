@@ -13,7 +13,7 @@ data:
   ENABLE_SIGNUP: "false"
   ENABLE_OLLAMA_API: "false"
   ENABLE_OPENAI_API: "true"
-  OPENAI_API_BASE_URLS: {{ .Values.llm.baseUrl | quote }}
+  OPENAI_API_BASE_URLS: {{ include "hearthai.llmUrl" . | quote }}
   # The sandbox substrate is not deployed yet. Do not introduce a second
   # execution path through Open WebUI's browser/local code facilities.
   ENABLE_CODE_EXECUTION: "false"

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: hearthai
-description: Household AI deployment with Open WebUI and HearthAI shared memory
+description: Household AI deployment with Open WebUI, LiteLLM, and HearthAI shared memory
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

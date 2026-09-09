@@ -25,3 +25,20 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 {{- define "hearthai.claimName" -}}
 {{- default (printf "%s-web-data" (include "hearthai.fullname" .)) .Values.openwebui.persistence.existingClaim -}}
 {{- end -}}
+
+{{- define "hearthai.llmUrl" -}}
+{{- if .Values.litellm.enabled -}}
+{{- printf "http://%s-litellm:4000/v1" (include "hearthai.fullname" .) -}}
+{{- else -}}
+{{- required "llm.baseUrl is required when litellm.enabled=false" .Values.llm.baseUrl -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "hearthai.litellmSelector" -}}
+app.kubernetes.io/name: litellm
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
+
+{{- define "hearthai.tokenClaim" -}}
+{{- default (printf "%s-litellm-token" (include "hearthai.fullname" .)) .Values.litellm.persistence.existingClaim -}}
+{{- end -}}

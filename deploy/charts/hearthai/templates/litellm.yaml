@@ -1,0 +1,155 @@
+{{- if .Values.litellm.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hearthai.fullname" . }}-litellm
+  labels:
+    {{- include "hearthai.litellmSelector" . | nindent 4 }}
+  {{- with .Values.litellm.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: 1
+  # Avoid overlapping token-cache writers during cutover and upgrades.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "hearthai.litellmSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hearthai.litellmSelector" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/litellm-configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        {{- toYaml .Values.litellm.nodeSelector | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.litellm.initDb.enabled }}
+      initContainers:
+        - name: init-db
+          image: {{ .Values.litellm.initDb.image | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ required "litellm.existingSecret is required" .Values.litellm.existingSecret }}
+      {{- end }}
+      containers:
+        - name: litellm
+          image: "{{ .Values.litellm.image.repository }}:{{ .Values.litellm.image.tag }}"
+          imagePullPolicy: {{ .Values.litellm.image.pullPolicy }}
+          args: ["--config", "/config/config.yaml", "--port", "4000"]
+          env:
+            - name: STORE_MODEL_IN_DB
+              value: "True"
+            - name: CHATGPT_TOKEN_DIR
+              value: /token
+          envFrom:
+            - secretRef:
+                name: {{ required "litellm.existingSecret is required" .Values.litellm.existingSecret }}
+          ports:
+            - name: http
+              containerPort: 4000
+          livenessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: 4000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /health/liveliness
+              port: 4000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 60
+          resources:
+            {{- toYaml .Values.litellm.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /config/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: token
+              mountPath: /token
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "hearthai.fullname" . }}-litellm
+        - name: token
+          persistentVolumeClaim:
+            claimName: {{ include "hearthai.tokenClaim" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hearthai.fullname" . }}-litellm
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "hearthai.litellmSelector" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 4000
+      targetPort: http
+{{- if not .Values.litellm.persistence.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hearthai.tokenClaim" . }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- if ne .Values.litellm.persistence.storageClass nil }}
+  storageClassName: {{ .Values.litellm.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.litellm.persistence.size }}
+{{- end }}
+{{- if .Values.litellm.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hearthai.fullname" . }}-litellm
+  {{- with .Values.litellm.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.litellm.ingress.className | quote }}
+  tls:
+    - hosts:
+        - {{ required "litellm.ingress.host is required" .Values.litellm.ingress.host | quote }}
+      {{- with .Values.litellm.ingress.tlsSecretName }}
+      secretName: {{ . | quote }}
+      {{- end }}
+  rules:
+    - host: {{ .Values.litellm.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hearthai.fullname" . }}-litellm
+                port:
+                  name: http
+{{- end }}
+{{- end }}
