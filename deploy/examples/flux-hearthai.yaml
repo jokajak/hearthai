@@ -1,0 +1,56 @@
+# Site-input example only; this does not modify the home-ops repository.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: hearthai
+  namespace: flux-system
+spec:
+  interval: 30m
+  url: https://github.com/jokajak/hearthai
+  ref:
+    branch: main # Pin a reviewed tag or commit before deploying.
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: hearthai
+  namespace: ai
+spec:
+  interval: 30m
+  timeout: 15m
+  chart:
+    spec:
+      chart: ./deploy/charts/hearthai
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: hearthai
+        namespace: flux-system
+  values:
+    url: https://chat.example.com
+    timezone: America/New_York
+    sessionSecret:
+      name: open-webui-secret
+    llm:
+      baseUrl: http://litellm.ai.svc.cluster.local:4000/v1
+      apiKeySecret:
+        name: open-webui-secret
+    auth:
+      mode: oidc
+      oidc:
+        providerName: Authentik
+        discoveryUrl: https://auth.example.com/application/o/open-webui/.well-known/openid-configuration
+        credentialsSecret:
+          name: open-webui-oidc-secret
+    openwebui:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      deploymentAnnotations:
+        reloader.stakater.com/auto: "true"
+      persistence:
+        existingClaim: open-webui-data
+    hearthmem:
+      persistence:
+        existingClaim: hearthmem-data
+    ingress:
+      className: internal

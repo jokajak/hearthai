@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hearthai.fullname" . }}-web
+  labels:
+    {{- include "hearthai.labels" . | nindent 4 }}
+  {{- with .Values.openwebui.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  # SQLite and the attached volume require a single writer, including upgrades.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "hearthai.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hearthai.selectorLabels" . | nindent 8 }}
+      annotations:
+        {{- with .Values.openwebui.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.openwebui.podSecurityContext | nindent 8 }}
+      containers:
+        - name: openwebui
+          image: "{{ .Values.openwebui.image.repository }}:{{ .Values.openwebui.image.tag }}"
+          imagePullPolicy: {{ .Values.openwebui.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ include "hearthai.fullname" . }}-web
+          env:
+            - name: WEBUI_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sessionSecret.name }}
+                  key: {{ .Values.sessionSecret.key }}
+            - name: OPENAI_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.llm.apiKeySecret.name }}
+                  key: {{ .Values.llm.apiKeySecret.key }}
+            {{- if eq .Values.auth.mode "oidc" }}
+            - name: OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.oidc.credentialsSecret.name }}
+                  key: {{ .Values.auth.oidc.credentialsSecret.clientIdKey }}
+            - name: OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.oidc.credentialsSecret.name }}
+                  key: {{ .Values.auth.oidc.credentialsSecret.clientSecretKey }}
+            {{- else }}
+            - name: WEBUI_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.local.adminSecret.name }}
+                  key: {{ .Values.auth.local.adminSecret.emailKey }}
+            - name: WEBUI_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.local.adminSecret.name }}
+                  key: {{ .Values.auth.local.adminSecret.passwordKey }}
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.openwebui.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.openwebui.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /app/backend/data
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 90
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            failureThreshold: 5
+      {{- with .Values.openwebui.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.openwebui.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.openwebui.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.openwebui.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "hearthai.claimName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

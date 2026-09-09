@@ -159,3 +159,27 @@ jobs:
           tar xzf /tmp/kubeconform.tar.gz -C /tmp
           helm template hm deploy/charts/hearthmem --set ingress.enabled=true \
             | /tmp/kubeconform -strict -summary -
+
+  hearthai-chart:
+    name: cohesive HearthAI chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - run: helm dependency build deploy/charts/hearthai
+      - run: helm lint deploy/charts/hearthai -f deploy/examples/hearthai-values.yaml
+      - name: Verify deployment contracts and packaged dependencies
+        run: uv run --no-project --with 'pytest>=8,<10' --with pyyaml python -m pytest deploy/tests -q
+      - name: Validate Kubernetes schemas
+        run: |
+          curl -fsSL --retry 3 -o /tmp/kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar xzf /tmp/kubeconform.tar.gz -C /tmp
+          helm template hearthai deploy/charts/hearthai -f deploy/examples/hearthai-values.yaml \
+            --set openwebui.persistence.existingClaim=,hearthmem.persistence.existingClaim= \
+            | /tmp/kubeconform -strict -summary -

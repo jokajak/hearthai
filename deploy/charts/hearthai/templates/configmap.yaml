@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hearthai.fullname" . }}-web
+  labels:
+    {{- include "hearthai.labels" . | nindent 4 }}
+data:
+  TZ: {{ .Values.timezone | quote }}
+  WEBUI_URL: {{ .Values.url | quote }}
+  ENABLE_PERSISTENT_CONFIG: "false"
+  ENABLE_OAUTH_PERSISTENT_CONFIG: "false"
+  WEBUI_AUTH: "true"
+  ENABLE_SIGNUP: "false"
+  ENABLE_OLLAMA_API: "false"
+  ENABLE_OPENAI_API: "true"
+  OPENAI_API_BASE_URLS: {{ .Values.llm.baseUrl | quote }}
+  # The sandbox substrate is not deployed yet. Do not introduce a second
+  # execution path through Open WebUI's browser/local code facilities.
+  ENABLE_CODE_EXECUTION: "false"
+  ENABLE_CODE_INTERPRETER: "false"
+  USER_PERMISSIONS_WORKSPACE_TOOLS_ACCESS: "false"
+  USER_PERMISSIONS_WORKSPACE_TOOLS_IMPORT: "false"
+  {{- if eq .Values.auth.mode "oidc" }}
+  ENABLE_LOGIN_FORM: "false"
+  ENABLE_OAUTH_SIGNUP: "true"
+  OAUTH_PROVIDER_NAME: {{ .Values.auth.oidc.providerName | quote }}
+  OAUTH_SCOPES: {{ .Values.auth.oidc.scopes | quote }}
+  OPENID_PROVIDER_URL: {{ .Values.auth.oidc.discoveryUrl | quote }}
+  OPENID_REDIRECT_URI: {{ printf "%s/oauth/oidc/callback" .Values.url | quote }}
+  {{- else }}
+  ENABLE_LOGIN_FORM: "true"
+  ENABLE_OAUTH_SIGNUP: "false"
+  {{- end }}

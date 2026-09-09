@@ -1,0 +1,11 @@
+HearthAI browser surface: {{ .Values.url }}
+
+Open WebUI and hearthmem are managed together by this release.
+The LLM endpoint and authentication provider are supplied by the operator.
+
+This package does not yet expose shared memory as Open WebUI tools or deploy
+ai-jobs. See deploy/README.md for current capability boundaries and migration.
+{{- if not .Values.openwebui.persistence.enabled }}
+WARNING: Open WebUI persistence is disabled; accounts and conversations are lost
+when the pod is replaced.
+{{- end }}

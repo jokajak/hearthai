@@ -1,0 +1,27 @@
+url: https://chat.example.com
+timezone: America/New_York
+sessionSecret:
+  name: open-webui-secret
+llm:
+  baseUrl: http://litellm.ai.svc.cluster.local:4000/v1
+  apiKeySecret:
+    name: open-webui-secret
+auth:
+  mode: oidc
+  oidc:
+    providerName: Authentik
+    discoveryUrl: https://auth.example.com/application/o/open-webui/.well-known/openid-configuration
+    credentialsSecret:
+      name: open-webui-oidc-secret
+openwebui:
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  deploymentAnnotations:
+    reloader.stakater.com/auto: "true"
+  persistence:
+    existingClaim: open-webui-data
+hearthmem:
+  persistence:
+    existingClaim: hearthmem-data
+ingress:
+  className: internal

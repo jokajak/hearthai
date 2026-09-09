@@ -19,6 +19,10 @@ read from the environment too.
 
 ## On Kubernetes
 
+For the full household application, use the [HearthAI chart](../deploy/README.md),
+which bundles this service with Open WebUI. The chart below remains supported for
+standalone memory consumers.
+
 Agents run per person and reach one shared service, so it is meant to be deployed on a cluster.
 The chart is published to GHCR on each tagged release:
 

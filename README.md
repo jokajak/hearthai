@@ -25,6 +25,19 @@ describes the longer-term shape. [`docs/SPEC.md`](docs/SPEC.md) is an older beha
 where these documents disagree, the roadmap and architecture documents are current. Licensed
 AGPL-3.0.
 
+## Deploy the household application
+
+[`deploy/charts/hearthai`](deploy/charts/hearthai) deploys Open WebUI and hearthmem
+as one Helm release. Supply the public URL, authentication, LLM endpoint, Secret
+references, and storage inputs; HearthAI owns the application manifests and pins.
+See [deployment and migration instructions](deploy/README.md) and
+[example site values](deploy/examples/hearthai-values.yaml).
+
+The package currently provides chat, Open WebUI personal memory, and the existing
+shared-memory service. The shared-memory chat adapter and deployable `ai-jobs`
+runtime remain pending. home-ops consumes the package; it does not need to recreate
+the application deployment there.
+
 ## Current product priority
 
 HearthAI must first remove friction from work Josh already does: **GitHub contribution, current

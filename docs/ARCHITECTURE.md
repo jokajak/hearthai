@@ -152,7 +152,22 @@ flowchart TB
 
 ## Deployment ownership
 
-HearthAI owns the `ai-jobs` request and result contracts, control-plane and worker behavior, container images, Helm chart, and release automation. The separate `home-ops` repository owns cluster deployment and integration wiring: namespace-scoped RBAC, storage, network policy, secret delivery, OpenWebUI tool registration, version pins, and observability configuration.
+HearthAI owns the cohesive application deployment, including Open WebUI: component
+manifests, compatible image pins, configuration, service discovery, probes, application
+storage defaults, and release automation live in `deploy/charts/hearthai`. The chart
+bundles Open WebUI and hearthmem into one release. The standalone memory chart remains
+available. See [`deploy/README.md`](../deploy/README.md) for inputs and migration.
+
+The separate `home-ops` repository selects a HearthAI release and supplies environment
+inputs: namespace, public URL, ingress/TLS infrastructure, storage classes or existing
+claims, identity-provider and LLM endpoints, Secret delivery, and cluster observability.
+It should not reconstruct Open WebUI deployments or HearthAI's internal integration.
+
+HearthAI also owns the `ai-jobs` contracts, control-plane and worker behavior. As that
+runtime becomes deployable, its application RBAC, sandbox/network-policy templates,
+and Open WebUI tool registration must ship here, parameterized by cluster inputs.
+They are not deployed by the current chart; neither is the shared-memory adapter.
+Bundling the existing services does not imply those model-callable capabilities exist.
 
 Neither deployment configuration nor OpenWebUI may turn `ai-jobs` into a general job runner. The model-facing capability accepts research intent and bounded research options only; images, commands, environment variables, credentials, Kubernetes objects, shells, and filesystems remain out of scope.
 

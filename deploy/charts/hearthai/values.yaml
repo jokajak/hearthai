@@ -1,0 +1,87 @@
+# Required site inputs. See deploy/examples/hearthai-values.yaml.
+# Public origin, without a trailing slash; also determines the OIDC callback.
+url: ""
+timezone: UTC
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Secret values stay outside Helm release metadata. All Secrets are in the
+# release namespace. Keys can be mapped to existing ExternalSecret outputs.
+sessionSecret:
+  name: ""
+  key: WEBUI_SECRET_KEY
+llm:
+  # One OpenAI-compatible endpoint, including /v1. LiteLLM is optional/external.
+  baseUrl: ""
+  apiKeySecret:
+    name: ""
+    key: OPENAI_API_KEYS
+
+auth:
+  mode: oidc # oidc or local; anonymous access is not supported
+  oidc:
+    providerName: OpenID Connect
+    discoveryUrl: ""
+    scopes: openid email profile
+    credentialsSecret:
+      name: ""
+      clientIdKey: OAUTH_CLIENT_ID
+      clientSecretKey: OAUTH_CLIENT_SECRET
+  local:
+    # Bootstrap only: creates the first administrator on an empty database.
+    # Existing accounts/passwords are not overwritten on upgrade.
+    adminSecret:
+      name: ""
+      emailKey: WEBUI_ADMIN_EMAIL
+      passwordKey: WEBUI_ADMIN_PASSWORD
+
+openwebui:
+  image:
+    repository: ghcr.io/open-webui/open-webui
+    tag: v0.11.3
+    pullPolicy: IfNotPresent
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: null # null = cluster default; "" = no StorageClass
+    existingClaim: ""
+  resources:
+    requests:
+      cpu: 200m
+      memory: 1Gi
+    limits:
+      memory: 4Gi
+  # Upstream image defaults to root. Do not claim non-root compatibility.
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  deploymentAnnotations: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+ingress:
+  enabled: true
+  className: internal
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+  tls:
+    # Empty uses the ingress controller's default certificate.
+    secretName: ""
+
+# Values for the bundled, independently usable memory chart. Kept internal by
+# default; its existing persistence, image, and scheduling inputs are available.
+hearthmem:
+  image:
+    tag: "0.1.0"
+  ingress:
+    enabled: false

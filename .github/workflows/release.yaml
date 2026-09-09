@@ -77,6 +77,27 @@ jobs:
           helm push "/tmp/chart/hearthmem-${VERSION}.tgz" \
             "oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts"
 
+      - name: Package and push the household chart
+        env:
+          VERSION: ${{ steps.version.outputs.semver }}
+        run: |
+          # Pin the just-published memory image, while keeping WebUI's independent pin.
+          python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          import yaml
+          path = Path('deploy/charts/hearthai/values.yaml')
+          values = yaml.safe_load(path.read_text())
+          values['hearthmem']['image']['tag'] = os.environ['VERSION']
+          path.write_text(yaml.safe_dump(values, sort_keys=False))
+          PYTHON
+          helm dependency build deploy/charts/hearthai
+          helm lint deploy/charts/hearthai -f deploy/examples/hearthai-values.yaml
+          helm package deploy/charts/hearthai \
+            --version "$VERSION" --app-version "$VERSION" --destination /tmp/chart
+          helm push "/tmp/chart/hearthai-${VERSION}.tgz" \
+            "oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts"
+
       - name: Summary
         run: |
           VERSION="${{ steps.version.outputs.semver }}"
@@ -85,7 +106,8 @@ jobs:
             echo "### Published \`$VERSION\`"
             echo
             echo '```sh'
-            echo "helm install hearthmem oci://ghcr.io/$OWNER/charts/hearthmem --version $VERSION"
+            echo "helm install hearthai oci://ghcr.io/$OWNER/charts/hearthai --version $VERSION -f site-values.yaml"
+            echo "# Standalone memory: helm install hearthmem oci://ghcr.io/$OWNER/charts/hearthmem --version $VERSION"
             echo '```'
             echo
             echo "Image: \`ghcr.io/$OWNER/hearthmem:$VERSION\` (amd64, arm64)"

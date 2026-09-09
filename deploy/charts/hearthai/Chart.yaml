@@ -1,0 +1,14 @@
+apiVersion: v2
+name: hearthai
+description: Household AI deployment with Open WebUI and HearthAI shared memory
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/jokajak/hearthai
+sources:
+  - https://github.com/jokajak/hearthai
+  - https://github.com/open-webui/open-webui
+dependencies:
+  - name: hearthmem
+    version: 0.1.0
+    repository: file://../hearthmem
