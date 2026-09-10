@@ -155,14 +155,17 @@ flowchart TB
 HearthAI owns the cohesive application deployment, including Open WebUI: component
 manifests, compatible image pins, configuration, service discovery, probes, application
 storage defaults, and release automation live in `deploy/charts/hearthai`. The chart
-bundles Open WebUI, LiteLLM (with the known-working home-ops catalogue), and hearthmem
+bundles Open WebUI, LiteLLM (with the known-working home-ops catalogue), Meridian,
+a single-instance CNPG Postgres cluster (enabled by default), and hearthmem
 into one release, including internal WebUI-to-proxy wiring. The standalone memory chart remains
 available. See [`deploy/README.md`](../deploy/README.md) for inputs and migration.
 
 The separate `home-ops` repository selects a HearthAI release and supplies environment
 inputs: namespace, public URL, ingress/TLS infrastructure, storage classes or existing
 claims, identity-provider/shared-Postgres endpoints, proxy/provider Secrets, and cluster observability.
-The existing Meridian service remains external for the imported Claude routes.
+home-ops supplies the CNPG operator and Cilium. HearthAI owns the single-server
+Postgres Cluster resource and Meridian wiring. With `postgres.enabled=false`,
+LiteLLM uses the externally supplied database. No database data migrates automatically.
 It should not reconstruct Open WebUI deployments or HearthAI's internal integration.
 
 HearthAI also owns the `ai-jobs` contracts, control-plane and worker behavior. As that

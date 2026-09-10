@@ -31,7 +31,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.litellm.initDb.enabled }}
+      {{- if and .Values.litellm.initDb.enabled (not .Values.postgres.enabled) }}
       initContainers:
         - name: init-db
           image: {{ .Values.litellm.initDb.image | quote }}
@@ -45,6 +45,13 @@ spec:
           imagePullPolicy: {{ .Values.litellm.image.pullPolicy }}
           args: ["--config", "/config/config.yaml", "--port", "4000"]
           env:
+            {{- if .Values.postgres.enabled }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hearthai.fullname" . }}-postgres-app
+                  key: uri
+            {{- end }}
             - name: STORE_MODEL_IN_DB
               value: "True"
             - name: CHATGPT_TOKEN_DIR

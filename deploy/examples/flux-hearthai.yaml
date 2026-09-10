@@ -60,3 +60,12 @@ spec:
         existingClaim: hearthmem-data
     ingress:
       className: internal
+
+    # Migration: keep the existing shared database and its virtual keys.
+    # Omit this override on a fresh installation (Postgres defaults on).
+    postgres:
+      enabled: false
+    meridian:
+      existingSecret: meridian-secret
+      persistence:
+        existingClaim: meridian-auth

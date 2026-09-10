@@ -123,3 +123,38 @@ hearthmem:
     tag: "0.1.0"
   ingress:
     enabled: false
+
+# home-ops provides the CNPG operator. HearthAI owns only this single-server
+# application database. Disable to keep DATABASE_URL from litellm.existingSecret.
+postgres:
+  enabled: true
+  image: ghcr.io/cloudnative-pg/postgresql:16.0-10
+  storage:
+    size: 10Gi
+    storageClass: openebs-hostpath
+  resources:
+    requests:
+      cpu: 500m
+    limits:
+      memory: 4Gi
+
+# Runtime pin and hardening copied from home-ops.
+meridian:
+  enabled: true
+  image: ghcr.io/rynfar/meridian:1.68.0
+  # Empty reuses MERIDIAN_API_KEY from litellm.existingSecret.
+  # A separate Secret must carry the SAME MERIDIAN_API_KEY.
+  existingSecret: ""
+  persistence:
+    size: 64Mi
+    storageClass: nfs-csi
+    existingClaim: ""
+  networkPolicy:
+    # Matches home-ops: requires Cilium; disables neither auth nor API key.
+    enabled: true
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+    limits:
+      memory: 1Gi

@@ -1,0 +1,34 @@
+{{- if and .Values.litellm.enabled .Values.postgres.enabled }}
+# The operator and its CRDs are cluster infrastructure supplied by home-ops.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "hearthai.fullname" . }}-postgres
+  annotations:
+    # Disabling bundled Postgres/uninstalling must not destroy the database.
+    helm.sh/resource-policy: keep
+spec:
+  instances: 1
+  imageName: {{ .Values.postgres.image | quote }}
+  primaryUpdateStrategy: unsupervised
+  enableSuperuserAccess: false
+  storage:
+    {{- toYaml .Values.postgres.storage | nindent 4 }}
+  bootstrap:
+    initdb:
+      database: litellm
+      owner: litellm
+  postgresql:
+    parameters:
+      max_connections: "400"
+      shared_buffers: 256MB
+      idle_in_transaction_session_timeout: "300000"
+      tcp_keepalives_idle: "60"
+      tcp_keepalives_interval: "10"
+      tcp_keepalives_count: "6"
+  nodeMaintenanceWindow:
+    inProgress: false
+    reusePVC: true
+  resources:
+    {{- toYaml .Values.postgres.resources | nindent 4 }}
+{{- end }}

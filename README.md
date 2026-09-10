@@ -27,9 +27,10 @@ AGPL-3.0.
 
 ## Deploy the household application
 
-[`deploy/charts/hearthai`](deploy/charts/hearthai) deploys Open WebUI, LiteLLM, and hearthmem
+[`deploy/charts/hearthai`](deploy/charts/hearthai) deploys Open WebUI, LiteLLM, Meridian, a single-instance Postgres database, and hearthmem
 as one Helm release. LiteLLM uses the known-working home-ops image and model catalogue,
-and Open WebUI is wired to it automatically. Supply the public URL, authentication, database/Secret
+and Open WebUI is wired to it automatically. home-ops supplies the CNPG operator; bundled Postgres defaults on and can be disabled.
+Supply the public URL, authentication, Secret
 references, and storage inputs; HearthAI owns the application manifests and pins.
 See [deployment and migration instructions](deploy/README.md) and
 [example site values](deploy/examples/hearthai-values.yaml).

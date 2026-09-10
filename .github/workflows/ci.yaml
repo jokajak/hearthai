@@ -181,5 +181,6 @@ jobs:
             https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
           tar xzf /tmp/kubeconform.tar.gz -C /tmp
           helm template hearthai deploy/charts/hearthai -f deploy/examples/hearthai-values.yaml \
-            --set openwebui.persistence.existingClaim=,hearthmem.persistence.existingClaim=,litellm.persistence.existingClaim= \
-            | /tmp/kubeconform -strict -summary -
+            --set openwebui.persistence.existingClaim=,hearthmem.persistence.existingClaim=,litellm.persistence.existingClaim=,meridian.persistence.existingClaim=,postgres.enabled=true \
+            | /tmp/kubeconform -strict -summary -schema-location default \
+                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' -

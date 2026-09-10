@@ -37,7 +37,7 @@ def config(docs):
 def test_cohesive_release_and_oidc():
     docs = render()
     deployments = [d for d in docs if d['kind'] == 'Deployment']
-    assert len(deployments) == 3
+    assert len(deployments) == 4
     for dep in deployments:
         assert dep['spec']['replicas'] == 1
         assert dep['spec']['strategy']['type'] == 'Recreate'
@@ -81,9 +81,9 @@ def test_local_bootstrap_without_oidc():
 
 
 def test_new_retained_claims():
-    docs = render('--set', 'openwebui.persistence.existingClaim=,hearthmem.persistence.existingClaim=,litellm.persistence.existingClaim=')
+    docs = render('--set', 'openwebui.persistence.existingClaim=,hearthmem.persistence.existingClaim=,litellm.persistence.existingClaim=,meridian.persistence.existingClaim=')
     claims = [d for d in docs if d['kind'] == 'PersistentVolumeClaim']
-    assert len(claims) == 3
+    assert len(claims) == 4
     for claim in claims:
         assert claim['metadata']['annotations']['helm.sh/resource-policy'] == 'keep'
         assert claim['spec']['accessModes'] == ['ReadWriteOnce']
@@ -99,7 +99,7 @@ def test_explicit_empty_storage_class():
 
 
 def test_ephemeral_and_external_ingress():
-    docs = render('--set', 'litellm.enabled=false,llm.baseUrl=http://external:4000/v1,openwebui.persistence.enabled=false,hearthmem.persistence.enabled=false,ingress.enabled=false')
+    docs = render('--set', 'litellm.enabled=false,meridian.enabled=false,llm.baseUrl=http://external:4000/v1,openwebui.persistence.enabled=false,hearthmem.persistence.enabled=false,ingress.enabled=false')
     assert not any(d['kind'] in ['PersistentVolumeClaim', 'Ingress'] for d in docs)
     for dep in [d for d in docs if d['kind'] == 'Deployment']:
         assert dep['spec']['template']['spec']['volumes'][0]['emptyDir'] == {}
@@ -108,12 +108,12 @@ def test_ephemeral_and_external_ingress():
 def test_configuration_rolls_pod():
     def checksum(docs):
         return web(docs)['spec']['template']['metadata']['annotations']['checksum/config']
-    assert checksum(render()) != checksum(render('--set', 'litellm.enabled=false,llm.baseUrl=http://different:4000/v1'))
+    assert checksum(render()) != checksum(render('--set', 'litellm.enabled=false,meridian.enabled=false,llm.baseUrl=http://different:4000/v1'))
 
 
 @pytest.mark.parametrize('setting', [
     'url=http://chat.example.com', 'url=https://chat.example.com/path',
-    'sessionSecret.name=', 'litellm.enabled=false,llm.baseUrl=', 'llm.apiKeySecret.name=',
+    'sessionSecret.name=', 'litellm.enabled=false,meridian.enabled=false,llm.baseUrl=', 'llm.apiKeySecret.name=',
     'litellm.existingSecret=', 'litellm.ingress.enabled=true,litellm.ingress.host=',
     'auth.mode=anonymous', 'auth.oidc.discoveryUrl=',
     'auth.oidc.credentialsSecret.name=',
@@ -131,8 +131,8 @@ def test_packaged_chart_is_self_contained(tmp_path):
     subprocess.run([HELM, 'package', str(CHART), '--destination', str(tmp_path)], check=True, capture_output=True)
     archive = next(tmp_path.glob('hearthai-*.tgz'))
     docs = render(chart=archive)
-    assert len([d for d in docs if d['kind'] == 'Deployment']) == 3
-    assert next(d for d in docs if d['kind'] == 'ConfigMap' and 'config.yaml' in d['data'])['data']['config.yaml'] == (CHART / 'files/litellm-config.yaml').read_text()
+    assert len([d for d in docs if d['kind'] == 'Deployment']) == 4
+    assert next(d for d in docs if d['kind'] == 'ConfigMap' and 'config.yaml' in d['data'])['data']['config.yaml'] == bundled_config()
 
 
 def proxy(docs):
@@ -146,7 +146,7 @@ def test_exact_home_ops_catalogue():
     assert hashlib.sha256(raw).hexdigest() == 'ad67fa2a12dd671629f9b10df69110a42484cc561232897d46c4cac59f4c0c09'
     docs = render()
     rendered = next(d['data']['config.yaml'] for d in docs if d['kind'] == 'ConfigMap' and 'config.yaml' in d['data'])
-    assert rendered == raw.decode()
+    assert rendered == bundled_config()
     models = yaml.safe_load(rendered)['model_list']
     assert [m['litellm_params']['model'] for m in models[:6]] == [
         'chatgpt/gpt-6-astra', 'chatgpt/gpt-5.6-sol', 'chatgpt/gpt-5.6-terra',
@@ -178,7 +178,7 @@ def test_proxy_runtime_and_internal_wiring():
 
 
 def test_external_proxy_escape_hatch():
-    docs = render('--set', 'litellm.enabled=false,llm.baseUrl=http://existing:4000/v1')
+    docs = render('--set', 'litellm.enabled=false,meridian.enabled=false,llm.baseUrl=http://existing:4000/v1')
     assert len([d for d in docs if d['kind'] == 'Deployment']) == 2
     assert config(docs)['OPENAI_API_BASE_URLS'] == 'http://existing:4000/v1'
     assert not any('-litellm' in d['metadata']['name'] for d in docs)
@@ -198,3 +198,91 @@ def test_proxy_config_rollout_and_optional_database_init(tmp_path):
 def test_flux_example_matches_helm_values():
     source = list(yaml.safe_load_all((ROOT / 'deploy/examples/flux-hearthai.yaml').read_text()))
     assert source[1]['spec']['values'] == yaml.safe_load(EXAMPLE.read_text())
+
+
+def bundled_config():
+    return (CHART / 'files/litellm-config.yaml').read_text().replace(
+        'http://meridian.ai.svc.cluster.local:3456',
+        'http://household-hearthai-meridian:3456',
+    )
+
+
+def test_single_server_postgres_default_and_wiring():
+    defaults = yaml.safe_load((CHART / 'values.yaml').read_text())
+    assert defaults['postgres']['enabled'] is True
+    docs = render('--set', 'postgres.enabled=true')
+    db = next(d for d in docs if d['kind'] == 'Cluster')
+    assert db['apiVersion'] == 'postgresql.cnpg.io/v1'
+    assert db['spec']['instances'] == 1
+    assert db['spec']['imageName'] == 'ghcr.io/cloudnative-pg/postgresql:16.0-10'
+    assert db['spec']['bootstrap']['initdb'] == {'database': 'litellm', 'owner': 'litellm'}
+    assert db['spec']['enableSuperuserAccess'] is False
+    assert db['metadata']['annotations']['helm.sh/resource-policy'] == 'keep'
+    assert 'plugins' not in db['spec']  # Never inherit shared backup history.
+    assert 'monitoring' not in db['spec']  # No implicit PodMonitor requirement.
+    pod = proxy(docs)['spec']['template']['spec']
+    assert 'initContainers' not in pod
+    env = pod['containers'][0]['env']
+    assert next(v for v in env if v['name'] == 'DATABASE_URL')['valueFrom']['secretKeyRef'] == {
+        'name': db['metadata']['name'] + '-app', 'key': 'uri',
+    }
+    assert not any(d['kind'] in ('ClusterRole', 'CustomResourceDefinition') for d in docs)
+
+
+def test_external_postgres_uses_existing_secret():
+    docs = render('--set', 'postgres.enabled=false')
+    assert not any(d['kind'] == 'Cluster' for d in docs)
+    pod = proxy(docs)['spec']['template']['spec']
+    assert pod['initContainers'][0]['name'] == 'init-db'
+    app = pod['containers'][0]
+    assert not any(v['name'] == 'DATABASE_URL' for v in app['env'])
+    assert app['envFrom'] == [{'secretRef': {'name': 'litellm-secret'}}]
+
+
+def test_meridian_runtime_policy_and_internal_routing():
+    docs = render()
+    dep = next(d for d in docs if d['kind'] == 'Deployment'
+               and d['metadata']['labels'].get('app.kubernetes.io/name') == 'meridian')
+    pod = dep['spec']['template']['spec']
+    app = pod['containers'][0]
+    assert app['image'] == 'ghcr.io/rynfar/meridian:1.68.0'
+    assert pod['securityContext']['runAsUser'] == 1000
+    assert pod['automountServiceAccountToken'] is False
+    assert app['securityContext']['capabilities']['drop'] == ['ALL']
+    assert app['volumeMounts'][0]['mountPath'] == '/home/claude/.claude'
+    assert pod['volumes'][0]['persistentVolumeClaim']['claimName'] == 'meridian-auth'
+    key = next(v for v in app['env'] if v['name'] == 'MERIDIAN_API_KEY')
+    assert key['valueFrom']['secretKeyRef'] == {'name': 'meridian-secret', 'key': 'MERIDIAN_API_KEY'}
+    policy = next(d for d in docs if d['kind'] == 'CiliumNetworkPolicy')
+    target = policy['spec']['endpointSelector']['matchLabels']
+    assert target == dep['spec']['selector']['matchLabels']
+    allowed = policy['spec']['ingress'][0]['fromEndpoints'][0]['matchLabels']
+    assert allowed['app.kubernetes.io/instance'] == 'household'
+    assert allowed['k8s:io.kubernetes.pod.namespace'] == 'ai'
+    rendered = next(d['data']['config.yaml'] for d in docs if d['kind'] == 'ConfigMap' and 'config.yaml' in d['data'])
+    claude = yaml.safe_load(rendered)['model_list'][6:]
+    assert all(m['litellm_params']['api_base'] == 'http://' + dep['metadata']['name'] + ':3456' for m in claude)
+
+
+def test_external_meridian_keeps_original_config():
+    docs = render('--set', 'meridian.enabled=false')
+    assert not any(d['kind'] == 'CiliumNetworkPolicy' for d in docs)
+    rendered = next(d['data']['config.yaml'] for d in docs if d['kind'] == 'ConfigMap' and 'config.yaml' in d['data'])
+    assert rendered == (CHART / 'files/litellm-config.yaml').read_text()
+
+
+def test_custom_config_is_never_rewritten(tmp_path):
+    raw = (CHART / 'files/litellm-config.yaml').read_text()
+    values = tmp_path / 'override.yaml'
+    values.write_text(yaml.safe_dump({'litellm': {'config': raw}}))
+    docs = render('-f', str(values))
+    assert next(d['data']['config.yaml'] for d in docs if d['kind'] == 'ConfigMap' and 'config.yaml' in d['data']) == raw
+
+
+def test_meridian_secret_fallback_and_network_policy_option():
+    docs = render('--set', 'meridian.existingSecret=,meridian.networkPolicy.enabled=false')
+    dep = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['labels'].get('app.kubernetes.io/name') == 'meridian')
+    env = dep['spec']['template']['spec']['containers'][0]['env']
+    key = next(v for v in env if v['name'] == 'MERIDIAN_API_KEY')
+    assert key['valueFrom']['secretKeyRef']['name'] == 'litellm-secret'
+    assert not any(d['kind'] == 'CiliumNetworkPolicy' for d in docs)

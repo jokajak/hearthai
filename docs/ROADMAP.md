@@ -21,7 +21,7 @@ provider still receives the context sent to it.
 ## Cohesive deployment — 2026-09-09
 
 Open WebUI is part of the HearthAI deployment. `deploy/charts/hearthai` packages it
-with LiteLLM and hearthmem; home-ops supplies environment inputs and a release pin.
+with LiteLLM, Meridian, optional default-on single-instance Postgres, and hearthmem; home-ops supplies environment inputs and a release pin.
 The proxy image and catalogue are imported unchanged from the known-working home-ops
 configuration, with automatic internal Open WebUI routing. Future
 shared-memory adapter/tool registration and `ai-jobs` runtime wiring belong in this
