@@ -152,7 +152,27 @@ flowchart TB
 
 ## Deployment ownership
 
-HearthAI owns the `ai-jobs` request and result contracts, control-plane and worker behavior, container images, Helm chart, and release automation. The separate `home-ops` repository owns cluster deployment and integration wiring: namespace-scoped RBAC, storage, network policy, secret delivery, OpenWebUI tool registration, version pins, and observability configuration.
+HearthAI owns the cohesive application deployment, including Open WebUI: component
+manifests, compatible image pins, configuration, service discovery, probes, application
+storage defaults, and release automation live in `deploy/charts/hearthai`. The chart
+bundles Open WebUI, LiteLLM (with the known-working home-ops catalogue), Meridian,
+a single-instance CNPG Postgres cluster (enabled by default), and hearthmem
+into one release, including internal WebUI-to-proxy wiring. The standalone memory chart remains
+available. See [`deploy/README.md`](../deploy/README.md) for inputs and migration.
+
+The separate `home-ops` repository selects a HearthAI release and supplies environment
+inputs: namespace, public URL, ingress/TLS infrastructure, storage classes or existing
+claims, identity-provider/shared-Postgres endpoints, proxy/provider Secrets, and cluster observability.
+home-ops supplies the CNPG operator and Cilium. HearthAI owns the single-server
+Postgres Cluster resource and Meridian wiring. With `postgres.enabled=false`,
+LiteLLM uses the externally supplied database. No database data migrates automatically.
+It should not reconstruct Open WebUI deployments or HearthAI's internal integration.
+
+HearthAI also owns the `ai-jobs` contracts, control-plane and worker behavior. As that
+runtime becomes deployable, its application RBAC, sandbox/network-policy templates,
+and Open WebUI tool registration must ship here, parameterized by cluster inputs.
+They are not deployed by the current chart; neither is the shared-memory adapter.
+Bundling the existing services does not imply those model-callable capabilities exist.
 
 Neither deployment configuration nor OpenWebUI may turn `ai-jobs` into a general job runner. The model-facing capability accepts research intent and bounded research options only; images, commands, environment variables, credentials, Kubernetes objects, shells, and filesystems remain out of scope.
 

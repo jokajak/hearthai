@@ -5,3 +5,6 @@ data/
 .worktrees/
 *.egg-info/
 .venv/
+
+# Built from the local chart dependency; never commit packaged binaries.
+deploy/charts/hearthai/charts/

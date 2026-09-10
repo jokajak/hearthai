@@ -1,0 +1,6 @@
+dependencies:
+- name: hearthmem
+  repository: file://../hearthmem
+  version: 0.1.0
+digest: sha256:8f7fa679afd1c3f8614cac76f5cabd709c223baeed7950d44c1e1075ec28be05
+generated: "2026-09-09T13:00:20.580182314-04:00"

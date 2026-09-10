@@ -1,0 +1,160 @@
+# Required site inputs. See deploy/examples/hearthai-values.yaml.
+# Public origin, without a trailing slash; also determines the OIDC callback.
+url: ""
+timezone: UTC
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Secret values stay outside Helm release metadata. All Secrets are in the
+# release namespace. Keys can be mapped to existing ExternalSecret outputs.
+sessionSecret:
+  name: ""
+  key: WEBUI_SECRET_KEY
+llm:
+  # Only required when litellm.enabled=false. Otherwise wired internally.
+  baseUrl: ""
+  apiKeySecret:
+    name: ""
+    key: OPENAI_API_KEYS
+
+# Image, model catalogue, env, probes, and init-db match home-ops at
+# 6221eb6daa67f51c1aa84e3d43fe91486db7a4ee. No model/version substitutions.
+litellm:
+  enabled: true
+  image:
+    repository: ghcr.io/berriai/litellm-database
+    tag: v1.99.1
+    pullPolicy: IfNotPresent
+  # Same envFrom contract as home-ops; see deploy/README.md for required keys.
+  existingSecret: ""
+  initDb:
+    enabled: true
+    image: ghcr.io/home-operations/postgres-init:18.6
+  persistence:
+    size: 64Mi
+    storageClass: nfs-csi
+    existingClaim: ""
+  # Leave empty to use the byte-for-byte home-ops config bundled in files/.
+  # A full replacement is available for operators with different endpoints.
+  config: ""
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  deploymentAnnotations:
+    reloader.stakater.com/auto: "true"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+  ingress:
+    enabled: false
+    host: ""
+    className: internal
+    annotations:
+      hajimari.io/icon: mdi:router-network
+    tlsSecretName: ""
+
+auth:
+  mode: oidc # oidc or local; anonymous access is not supported
+  oidc:
+    providerName: OpenID Connect
+    discoveryUrl: ""
+    scopes: openid email profile
+    credentialsSecret:
+      name: ""
+      clientIdKey: OAUTH_CLIENT_ID
+      clientSecretKey: OAUTH_CLIENT_SECRET
+  local:
+    # Bootstrap only: creates the first administrator on an empty database.
+    # Existing accounts/passwords are not overwritten on upgrade.
+    adminSecret:
+      name: ""
+      emailKey: WEBUI_ADMIN_EMAIL
+      passwordKey: WEBUI_ADMIN_PASSWORD
+
+openwebui:
+  image:
+    repository: ghcr.io/open-webui/open-webui
+    tag: v0.11.3
+    pullPolicy: IfNotPresent
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: null # null = cluster default; "" = no StorageClass
+    existingClaim: ""
+  resources:
+    requests:
+      cpu: 200m
+      memory: 1Gi
+    limits:
+      memory: 4Gi
+  # Upstream image defaults to root. Do not claim non-root compatibility.
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  deploymentAnnotations: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+ingress:
+  enabled: true
+  className: internal
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+  tls:
+    # Empty uses the ingress controller's default certificate.
+    secretName: ""
+
+# Values for the bundled, independently usable memory chart. Kept internal by
+# default; its existing persistence, image, and scheduling inputs are available.
+hearthmem:
+  image:
+    tag: "0.1.0"
+  ingress:
+    enabled: false
+
+# home-ops provides the CNPG operator. HearthAI owns only this single-server
+# application database. Disable to keep DATABASE_URL from litellm.existingSecret.
+postgres:
+  enabled: true
+  image: ghcr.io/cloudnative-pg/postgresql:16.0-10
+  storage:
+    size: 10Gi
+    storageClass: openebs-hostpath
+  resources:
+    requests:
+      cpu: 500m
+    limits:
+      memory: 4Gi
+
+# Runtime pin and hardening copied from home-ops.
+meridian:
+  enabled: true
+  image: ghcr.io/rynfar/meridian:1.68.0
+  # Empty reuses MERIDIAN_API_KEY from litellm.existingSecret.
+  # A separate Secret must carry the SAME MERIDIAN_API_KEY.
+  existingSecret: ""
+  persistence:
+    size: 64Mi
+    storageClass: nfs-csi
+    existingClaim: ""
+  networkPolicy:
+    # Matches home-ops: requires Cilium; disables neither auth nor API key.
+    enabled: true
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+    limits:
+      memory: 1Gi

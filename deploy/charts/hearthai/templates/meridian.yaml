@@ -1,0 +1,131 @@
+{{- if .Values.meridian.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hearthai.fullname" . }}-meridian
+  labels:
+    app.kubernetes.io/name: meridian
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: meridian
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: meridian
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: meridian
+          image: {{ .Values.meridian.image | quote }}
+          env:
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "3456"
+            - name: NO_UPDATE_CHECK
+              value: "1"
+            - name: MERIDIAN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "Meridian requires an API-key Secret" (default .Values.litellm.existingSecret .Values.meridian.existingSecret) }}
+                  key: MERIDIAN_API_KEY
+          ports:
+            - name: http
+              containerPort: 3456
+          livenessProbe:
+            tcpSocket:
+              port: 3456
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: 3456
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.meridian.resources | nindent 12 }}
+          volumeMounts:
+            - name: auth
+              mountPath: /home/claude/.claude
+      volumes:
+        - name: auth
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-meridian-auth" (include "hearthai.fullname" .)) .Values.meridian.persistence.existingClaim }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hearthai.fullname" . }}-meridian
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: meridian
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 3456
+      targetPort: http
+{{- if not .Values.meridian.persistence.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hearthai.fullname" . }}-meridian-auth
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- if ne .Values.meridian.persistence.storageClass nil }}
+  storageClassName: {{ .Values.meridian.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.meridian.persistence.size }}
+{{- end }}
+{{- if .Values.meridian.networkPolicy.enabled }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "hearthai.fullname" . }}-meridian
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: meridian
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: litellm
+            app.kubernetes.io/instance: {{ .Release.Name }}
+            k8s:io.kubernetes.pod.namespace: {{ .Release.Namespace }}
+    - fromEntities:
+        - host
+        - remote-node
+{{- end }}
+{{- end }}

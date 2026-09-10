@@ -1,0 +1,13 @@
+{{- if .Values.litellm.enabled }}
+{{- $config := default (.Files.Get "files/litellm-config.yaml") .Values.litellm.config }}
+{{- if and .Values.meridian.enabled (not .Values.litellm.config) }}
+{{- $config = replace "http://meridian.ai.svc.cluster.local:3456" (printf "http://%s-meridian:3456" (include "hearthai.fullname" .)) $config }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hearthai.fullname" . }}-litellm
+data:
+  config.yaml: |
+    {{- $config | nindent 4 }}
+{{- end }}

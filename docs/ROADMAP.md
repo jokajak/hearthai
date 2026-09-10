@@ -18,6 +18,16 @@ Authentication, scoped access, credential protection, sandboxed execution, and a
 remain required. Local deployment does not require local inference: a configured hosted model
 provider still receives the context sent to it.
 
+## Cohesive deployment — 2026-09-09
+
+Open WebUI is part of the HearthAI deployment. `deploy/charts/hearthai` packages it
+with LiteLLM, Meridian, optional default-on single-instance Postgres, and hearthmem; home-ops supplies environment inputs and a release pin.
+The proxy image and catalogue are imported unchanged from the known-working home-ops
+configuration, with automatic internal Open WebUI routing. Future
+shared-memory adapter/tool registration and `ai-jobs` runtime wiring belong in this
+package. The current chart does not claim those pending capabilities are available.
+See [`deploy/README.md`](../deploy/README.md) for the deployment contract.
+
 ## Current priority correction — 2026-09-08
 
 This section supersedes the earlier *Direction*, numbered ordering, and 0.1 exclusions below until the milestone detail is rewritten.

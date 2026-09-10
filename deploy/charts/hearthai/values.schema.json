@@ -1,0 +1,176 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "url",
+    "sessionSecret",
+    "llm",
+    "auth"
+  ],
+  "properties": {
+    "url": {
+      "type": "string",
+      "pattern": "^https://[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$"
+    },
+    "sessionSecret": {
+      "type": "object",
+      "required": [
+        "name",
+        "key"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "llm": {
+      "type": "object",
+      "required": [
+        "baseUrl",
+        "apiKeySecret"
+      ],
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "pattern": "^$|^https?://[^\\s;]+$"
+        },
+        "apiKeySecret": {
+          "type": "object",
+          "required": [
+            "name",
+            "key"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "oidc",
+            "local"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "oidc"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "oidc"
+            ],
+            "properties": {
+              "oidc": {
+                "type": "object",
+                "required": [
+                  "discoveryUrl",
+                  "credentialsSecret"
+                ],
+                "properties": {
+                  "discoveryUrl": {
+                    "type": "string",
+                    "pattern": "^https://[^\\s]+$"
+                  },
+                  "credentialsSecret": {
+                    "type": "object",
+                    "required": [
+                      "name",
+                      "clientIdKey",
+                      "clientSecretKey"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "clientIdKey": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "clientSecretKey": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "local"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "local"
+            ],
+            "properties": {
+              "local": {
+                "type": "object",
+                "required": [
+                  "adminSecret"
+                ],
+                "properties": {
+                  "adminSecret": {
+                    "type": "object",
+                    "required": [
+                      "name",
+                      "emailKey",
+                      "passwordKey"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "emailKey": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "passwordKey": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

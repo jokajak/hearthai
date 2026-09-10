@@ -1,0 +1,42 @@
+url: https://chat.example.com
+timezone: America/New_York
+sessionSecret:
+  name: open-webui-secret
+llm:
+  apiKeySecret:
+    name: open-webui-secret
+litellm:
+  existingSecret: litellm-secret
+  persistence:
+    existingClaim: litellm-token
+  ingress:
+    enabled: true
+    host: llm.example.com
+auth:
+  mode: oidc
+  oidc:
+    providerName: Authentik
+    discoveryUrl: https://auth.example.com/application/o/open-webui/.well-known/openid-configuration
+    credentialsSecret:
+      name: open-webui-oidc-secret
+openwebui:
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  deploymentAnnotations:
+    reloader.stakater.com/auto: "true"
+  persistence:
+    existingClaim: open-webui-data
+hearthmem:
+  persistence:
+    existingClaim: hearthmem-data
+ingress:
+  className: internal
+
+# Migration: keep the existing shared database and its virtual keys.
+# Omit this override on a fresh installation (Postgres defaults on).
+postgres:
+  enabled: false
+meridian:
+  existingSecret: meridian-secret
+  persistence:
+    existingClaim: meridian-auth

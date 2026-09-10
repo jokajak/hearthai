@@ -1,0 +1,18 @@
+HearthAI browser surface: {{ .Values.url }}
+
+Open WebUI, hearthmem, LiteLLM, Meridian, and optional Postgres are managed here.
+Open WebUI's LLM endpoint: {{ include "hearthai.llmUrl" . }}
+The authentication provider, CNPG operator, and provider Secrets are cluster inputs.
+{{- if and .Values.litellm.enabled .Values.postgres.enabled }}
+Postgres: one CNPG-managed server; the application connection Secret is wired automatically.
+The database is retained on uninstall. No existing database is migrated by installation.
+{{- else }}
+Postgres: external, using DATABASE_URL from the LiteLLM Secret.
+{{- end }}
+
+This package does not yet expose shared memory as Open WebUI tools or deploy
+ai-jobs. See deploy/README.md for current capability boundaries and migration.
+{{- if not .Values.openwebui.persistence.enabled }}
+WARNING: Open WebUI persistence is disabled; accounts and conversations are lost
+when the pod is replaced.
+{{- end }}
