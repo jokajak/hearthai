@@ -1,6 +1,6 @@
 # HearthAI Architecture
 
-> **Proposed webfetch boundary (2026-09-12):** [Isolated webfetch and response rejection](superpowers/specs/2026-09-12-isolated-webfetch-design.md) specifies ephemeral fetch/inspection stages, whole-response rejection on any enabled detector hit, YARA-X rule support, and persistent external provenance. See the [implementation plan](superpowers/plans/2026-09-12-isolated-webfetch.md). This is planning work, not an implemented capability.
+> **Proposed safer fetch (2026-09-12):** The [webfetch design](superpowers/specs/2026-09-12-isolated-webfetch-design.md) and [plan](superpowers/plans/2026-09-12-isolated-webfetch.md) cover a URL-in, content-or-error-out tool with isolated inspection and whole-response rejection, including YARA rules. Planning only; no search, summarization, or research implementation.
 
 **Status:** working architecture for the authoritative capability roadmap  
 **Roadmap:** [`ROADMAP.md`](ROADMAP.md)  
