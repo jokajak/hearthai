@@ -14,10 +14,12 @@ summarize, extract answers, or call an LLM. HTTP redirects are the only automati
 follow-up requests. Web research and new conversation-wide authorization systems
 are outside this change. The existing research plan is unchanged.
 
-The returned content is the decoded response body. HTML is returned as HTML source
-in a text field, not rendered or executed. No “projected content,” selected excerpts,
-or AI rewriting. If the complete body exceeds the tool's limit, reject it; do not
-return a scanned prefix.
+Proposed output behavior follows a conventional fetch tool: convert HTML to Markdown
+by default, with plain-text and HTML-source options. Conversion uses ordinary parser
+code, never an LLM. It preserves content rather than selecting task-specific evidence.
+HTML source is returned as inert text, not rendered or executed. If the complete
+response or converted output exceeds the tool's limits, reject it; do not return
+a scanned prefix.
 
 **Any enabled detection rule that matches causes rejection of the whole response.**
 A failed or incomplete inspection also returns no content. A successful inspection
@@ -63,9 +65,11 @@ Proposed endpoint: `POST /v1/tools/web-fetch`.
 Request:
 
 ```json
-{"url":"https://example.com/page"}
+{"url":"https://example.com/page","format":"markdown"}
 ```
 
+Only `url` is required. `format` is an optional enum: `markdown` (default),
+`text`, or `html`. It controls deterministic conversion, never inspection policy.
 Reject unknown request fields. V1 uses GET with fixed headers and supports public
 HTTP(S) text responses. No caller-supplied headers, cookies, credentials,
 skip-scan option, or rules.
@@ -75,7 +79,7 @@ A successful tool result contains:
 - `status: "ok"`;
 - the validated final URL and HTTP status;
 - supported content type and retrieval time;
-- `content`: the complete decoded response body;
+- `content`: the response in the requested format, without summarization;
 - `trust: "external_untrusted"` and `inspection: "no_match"`.
 
 The trust marker describes fetched data; it grants no permissions. A 4xx/5xx HTTP
@@ -98,7 +102,7 @@ headers, URL, matched text, or worker exception embedded in the error. For examp
 | Body, header, or decoding limit exceeded | response_limit_exceeded | None |
 | Network failure | fetch_failed | None |
 | Whole-run deadline exceeded | deadline_exceeded | None |
-| All required scans complete without matches | Successful result | Complete decoded body |
+| All required scans complete without matches | Successful result | Content in the requested format |
 
 Reuse authenticated admission, caller-scoped idempotency, cancellation, and run
 lifecycle. Do not persist raw URLs/bodies by blindly serializing the request or
@@ -139,8 +143,13 @@ Inspect the full response before any of it reaches the caller:
 4. Also scan bounded inspection-only forms that expose HTML entities and Unicode
    obfuscation. These forms help detectors; they do not replace or rewrite the
    returned body. Arbitrary recursive decoding is outside v1.
-5. Scan the final returned text fields, including the final URL, and their combined
-   representation. Release only the exact body tied to those completed checks.
+5. Convert HTML to the requested format using a pinned, non-executing parser.
+   Markdown/text conversion removes script/style content; HTML mode returns source.
+   Non-HTML text passes through without AI rewriting. This is format conversion,
+   not an injection detector. Bound conversion output and resource use.
+6. Scan the final returned text fields, including converted content and the final URL,
+   and their combined representation. Release only the exact output tied to those
+   completed checks. A raw-source match rejects even if conversion would remove it.
 
 All required checks must finish without a match. Detection does not repair the
 response: no deleting a suspicious paragraph and returning the rest.
@@ -199,7 +208,29 @@ pieces to exist; it does not treat scaffolding as a deployed executor.
 
 ## Acceptance
 
-A permitted URL returns its complete decoded content after all checks pass.
+A permitted URL returns its content in the requested format after all checks pass.
 A matching rule, incomplete scan, forbidden destination, or exceeded limit
 returns a fixed error with none of the response content. Tests demonstrate both
 the isolation boundary and the known limits of pattern detection.
+
+## Existing harness behavior informing the proposal
+
+Source review on 2026-09-12; these are observations of the named fetch paths,
+not a security audit of either complete application.
+
+| Harness | Observed fetch behavior | Implication for HearthAI |
+|---|---|---|
+| OpenCode | Defaults to Markdown; supports text/HTML. Uses Turndown for HTML-to-Markdown and a parser for text extraction. Checks a 5 MiB response limit and exposes a timeout capped at 120 seconds. | Deterministic conversion is ordinary fetch behavior; adopt a similarly small format contract. |
+| oh-my-pi | URL reads try site-specific handlers, alternate Markdown/feed resources and reader backends. Its default reader order starts with local native HTML-to-Markdown, then other local/remote fallbacks. Supports raw mode; large returned results are truncated with an artifact reference. | Content extraction is distinct from research, but automatic alternate requests, remote readers and artifact workflows are unnecessary for this first fetch tool. |
+
+Neither inspected fetch path includes a YARA/prompt-injection match gate that
+rejects an entire response before returning it. Removing scripts or navigation
+is content cleanup, not detection of instructions directed at an LLM.
+HearthAI's proposed addition is isolated processing plus strict rejection.
+
+OpenCode source: [webfetch.ts](https://github.com/anomalyco/opencode/blob/95daf90670b7c039c436c85537da5fbfe2205b41/packages/opencode/src/tool/webfetch.ts).
+oh-my-pi sources: [fetch.ts](https://github.com/can1357/oh-my-pi/blob/540a7292d903723558a807fcb95c687f72d015f3/packages/coding-agent/src/tools/fetch.ts),
+[native HTML conversion](https://github.com/can1357/oh-my-pi/blob/540a7292d903723558a807fcb95c687f72d015f3/crates/pi-natives/src/html.rs).
+
+The format choices above are proposed from this comparison. The user's requirement
+is safer fetch with rejection on detection; it does not require raw-only output.

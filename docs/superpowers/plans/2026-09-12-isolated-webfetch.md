@@ -6,13 +6,17 @@
 Build a URL-in, content-or-error-out tool. No search, research orchestration,
 summarization, LLM processing, source selection, or new conversation policy system.
 
+The [design's harness comparison](../specs/2026-09-12-isolated-webfetch-design.md#existing-harness-behavior-informing-the-proposal)
+records inspected OpenCode and oh-my-pi behavior. Markdown by default with text/HTML
+options is a proposal based on that comparison; no LLM is used for conversion.
+
 ## 1. Add the tool contract
 
 Files: `service/ai_jobs/src/ai_jobs/tools/web_fetch.py`, registry, OpenAPI,
 run/result handling, and contract fixtures.
 
-- [ ] Define the URL-only request and exact success/error schemas.
-- [ ] Return the complete decoded body with actual HTTP status and validated final URL.
+- [ ] Define the URL request with optional markdown/text/html format and exact success/error schemas.
+- [ ] Return content in the requested format with actual HTTP status and validated final URL.
 - [ ] Reject caller runtime settings, rules, credentials and bypass fields.
 - [ ] Reuse authentication, idempotency, cancellation and fixed profile selection.
 - [ ] Ensure request/result storage does not persist full URLs or response bodies.
@@ -43,14 +47,16 @@ YARA-X adapter, versioned `rules/` bundle and fixtures.
 - [ ] Pin YARA-X and validate the supported rule subset.
 - [ ] Scan raw bytes, decoded body, bounded inspection-only normalized forms, and
   every final returned text field.
-- [ ] Return the original decoded body unchanged; do not summarize or select excerpts.
+- [ ] Add deterministic HTML-to-Markdown/text conversion and inert HTML-source mode.
+- [ ] Scan before conversion and again afterward; do not summarize or select excerpts.
 - [ ] Reject the whole response on any enabled rule match.
 - [ ] Withhold content on malformed input, timeout, crash, partial scan or missing rules.
 - [ ] Disable rule includes/modules; bound compilation, scanning and match counts.
 - [ ] Support validated immutable bundle updates and rollback.
 
 Acceptance: a match anywhere, including late in the body or hidden HTML, withholds
-the entire response. Passing content is returned without rewriting. A scanner
+the entire response, even if conversion removes the matching text. Passing content
+uses only the requested deterministic conversion. A scanner
 failure never becomes a successful result.
 
 ## 4. Connect the isolated stages through ai-jobs
@@ -90,7 +96,7 @@ safety guarantee.
 
 | Area | Cases |
 |---|---|
-| Return behavior | Plain text, HTML source, supported JSON; exact decoded body; actual 4xx/5xx status |
+| Return behavior | Markdown/text/HTML modes, plain text and supported JSON; deterministic conversion; actual 4xx/5xx status |
 | Rules | Direct patterns, HTML entities, hidden markup, Unicode variations, match near end of body |
 | False positives and misses | Legitimate quoted attacks; paraphrased/multilingual/encoded attacks; record actual outcomes |
 | Failures | Missing/broken rules, timeout, scanner crash, excessive matches, malformed charset, decompression bomb |
