@@ -27,6 +27,90 @@ a scanned prefix.
 A failed or incomplete inspection also returns no content. A successful inspection
 means only that the configured rules did not match; the response remains untrusted.
 
+## Threat model
+
+The protected asset is the model's context and any action the model takes as a
+result of reading it, together with the operator's network and cluster. The human
+operator is not the protected party: they choose the URL and read the answer, but
+the model ingests the page.
+
+**A human in the loop does not remove the need for inspection.** A language model
+has no enforced boundary between content supplied as tool output and direction
+supplied by the operator. Retrieved text enters the same context as the request
+and is available to influence the next action. Operator URL selection limits an
+attacker's ability to choose their victim; it does nothing once a page the
+operator legitimately wanted carries hostile text. This tool exists to put a gate
+in front of that ingestion, and to be the single fetch path that later
+capabilities — web research among them — are built on rather than bypass.
+
+### Attackers, and what each control actually stops
+
+| Attacker | Goal | Control | Not stopped by it |
+|---|---|---|---|
+| Hostile response aimed at the parsers | Code execution in the worker | Offline inspection pod with no Internet access; non-root, dropped capabilities, read-only root, bounded CPU/memory/time | A compromised scanner can still lie about its own verdict; the result gate trusts a verdict it cannot independently verify |
+| Hostile page or redirect chain | Reach the LAN, metadata endpoints, or cluster APIs | Destination validation with per-redirect DNS pinning, plus independently enforced egress | Nothing, if the configured cluster ranges are empty or wrong — see *Known fail-open* below |
+| Opportunistic injection | Steer any model that reads the page | Rule bundle; whole-response rejection | Anything it has no pattern for |
+| Targeted injection | Steer this model, knowing this gate exists | — | Paraphrase, translation, novel encoding, and instructions carrying no imperative form. Assume this attacker succeeds |
+| Over-broad or compromised rule bundle | Withhold content the operator needs | Reviewed bundles, offline corpus checks before promotion, recorded engine and bundle versions per run | An operator-authored rule that is merely too broad. This is an availability risk the operator owns, not an attack the tool detects |
+
+### Opportunistic and targeted injection are different problems
+
+The detection value of this design rests entirely on the first. Stating the split
+is what makes the claim testable:
+
+- **Opportunistic injection** is mass-deployed and not aimed at HearthAI: text
+  planted in scraped-content farms, SEO pages, comment sections, wiki edits, issue
+  threads, and poisoned documentation mirrors. It reuses published phrasings
+  because that is cheap, not because its author tested it against a gate. Pattern
+  matching works here for the same reason signature antivirus still works on
+  commodity malware, and this is the large majority of what a personal deployment
+  meets.
+- **Targeted injection** is written by someone who knows a rule gate sits in front
+  of this tool. Recall against it is approximately zero, and no rule bundle changes
+  that. *Response inspection* bounds normalization deliberately, so encodings
+  outside those bounded forms pass by construction.
+
+**This tool raises the cost of drive-by injection. It does not defend against a
+motivated attacker who is aiming at this system.** Every statement about
+inspection elsewhere in this document means that and nothing more.
+
+### What "a fetch result you can trust" means
+
+A successful result is a process guarantee, not a judgement about the content:
+every required check completed, and no part of the response reached the caller
+unless all of them passed. It is not a statement that the page is safe.
+
+The complementary guarantee matters just as much for a tool on the critical path —
+that a legitimate page is not silently withheld — and is bounded by the
+false-positive budget below.
+
+### Measured before release, not asserted
+
+The claims above are testable, and this document's acceptance criteria are not
+satisfied by narrative:
+
+- **Recall against opportunistic injection.** Measure the active bundle against a
+  corpus of published injection strings and their common variants. Record the
+  number.
+- **Recall against targeted injection.** Measure against paraphrased, translated
+  and encoded rewrites of that same corpus. The expected result is near zero.
+  Record it, so no later reader mistakes this gate for a defense against it.
+- **False-positive rate.** Measure against a corpus drawn from the operator's real
+  reading: CVE writeups, agent-security papers, framework documentation containing
+  system-prompt examples, issue threads quoting attacks. **A ship/no-ship
+  threshold belongs here and this document does not yet carry one; set it before
+  implementation begins.** A tool that withholds material the operator needs will
+  be worked around, and a bypassed gate is worth less than no gate, because the
+  bypass is undocumented.
+
+### Known fail-open
+
+*Fetch restrictions* denies "configured cluster/service/node ranges". An empty or
+misconfigured range list therefore fails open, while a missing rule bundle
+correctly makes the tool unavailable. Make destination configuration fail closed
+the same way: absent or unparseable range configuration makes the tool
+unavailable rather than unrestricted.
+
 ## Implementation language
 
 HearthAI is not constrained to Python. Choose languages per component based on
