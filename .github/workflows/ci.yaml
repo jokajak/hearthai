@@ -48,6 +48,43 @@ jobs:
         working-directory: service/web_research_worker
         run: uv run --extra test python -m pytest -q
 
+  web-fetch:
+    name: web_fetch workers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # No toolchain action on purpose: rustup installs exactly what
+      # service/web_fetch/rust-toolchain.toml pins, so CI, a contributor's
+      # machine and the release images all build with the same compiler. It
+      # runs before the cache so the cache key is the pinned compiler's.
+      - name: Install the pinned toolchain
+        working-directory: service/web_fetch
+        run: |
+          rustup show active-toolchain
+          cargo --version
+          cargo clippy --version
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: service/web_fetch
+      - name: Format
+        working-directory: service/web_fetch
+        run: cargo fmt --all -- --check
+      - name: Lint
+        working-directory: service/web_fetch
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        working-directory: service/web_fetch
+        run: cargo test --workspace --locked
+      - name: Build without the live connector
+        working-directory: service/web_fetch
+        # The fetch worker's live connector is the only code in the workspace
+        # that can open a socket. Building without it keeps "does anything else
+        # need the network?" a question the feature flag answers.
+        run: cargo build --workspace --locked --no-default-features
+      - name: Release build for the container architecture
+        working-directory: service/web_fetch
+        run: cargo build --workspace --locked --release
+
   image:
     name: build image
     runs-on: ubuntu-latest

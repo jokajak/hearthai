@@ -163,9 +163,12 @@ impl ToolPayload for WebFetchData {
         if !(100..=599).contains(&http_status) {
             return invalid("data.http_status", "is not an HTTP status code");
         }
+        // The supported set, not just the syntax: the control-plane validator
+        // checks the same list, and a validator that is merely stricter on one
+        // side is still a place the two can disagree.
         let content_type = require_string(&object["content_type"], "data.content_type", 128)?;
-        if !is_media_type(content_type) {
-            return invalid("data.content_type", "is not a media type");
+        if !is_supported_media_type(content_type) {
+            return invalid("data.content_type", "is not a supported media type");
         }
         let retrieved_at = require_string(&object["retrieved_at"], "data.retrieved_at", 40)?;
         if !is_rfc3339_utc(retrieved_at) {

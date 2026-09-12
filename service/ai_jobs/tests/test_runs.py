@@ -15,10 +15,12 @@ KEY = "123e4567-e89b-12d3-a456-426614174000"
 class FakeExecutor:
     def __init__(self):
         self.started = []
+        self.requests = []
         self.cancelled = []
 
-    def start(self, run_id, profile):
+    def start(self, run_id, profile, request):
         self.started.append((run_id, profile))
+        self.requests.append(request)
 
     def cancel(self, run_id):
         self.cancelled.append(run_id)
