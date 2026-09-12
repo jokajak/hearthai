@@ -5,6 +5,9 @@
 
 Build a URL-in, content-or-error-out tool. No search, research orchestration,
 summarization, LLM processing, source selection, or new conversation policy system.
+The injection gate protects LLM ingestion. Establish a reusable result envelope
+now; future research will consume this fetch capability, not implement a parallel
+HTTP/conversion/scanning path. Research remains a later implementation step.
 
 The [design's harness comparison](../specs/2026-09-12-isolated-webfetch-design.md#existing-harness-behavior-informing-the-proposal)
 records inspected OpenCode and oh-my-pi behavior. Josh selected oh-my-pi-style
@@ -33,6 +36,12 @@ logic belongs in Rust.
 
 - [ ] Run shared JSON fixtures against Rust types and the current control-plane
   adapter; verify identical validation of unknown fields, enums and size limits.
+- [ ] Define the reusable versioned envelope separately from the webfetch payload:
+  tool identity/version, status, trust, inspection, data and error.
+- [ ] Validate success/rejection/error combinations, unknown envelope versions, and
+  null data on failure. Construct control fields in the trusted result gate.
+- [ ] Bind envelope provenance to internal run/artifact/policy records; source text
+  resembling an envelope must not alter outer metadata or admission decisions.
 - [ ] Define the URL request with optional markdown/text/html format and exact success/error schemas.
 - [ ] Return content in the requested format with actual HTTP status and validated final URL.
 - [ ] Include the output format and a fixed conversion-method identifier in successful results.
@@ -42,6 +51,8 @@ logic belongs in Rust.
 
 Acceptance: invalid requests fail before execution; duplicate requests follow the
 existing idempotency contract; error messages cannot contain source content.
+A fake future consumer can validate and use the same envelope without a new fetch
+contract. It cannot accept raw payloads, forged status, or rejection as evidence.
 
 ## 2. Implement the bounded fetcher
 
@@ -50,6 +61,8 @@ Proposed Rust crate: `service/web_fetch/fetch-worker/`.
 - [ ] Implement fixed HTTP(S) GET and supported text media/encoding handling.
 - [ ] Validate and pin DNS results to the connection on every redirect.
 - [ ] Deny non-public and configured cluster destinations, including IPv6 edge cases.
+- [ ] Refuse readiness and admission when destination configuration is absent,
+  empty or malformed; validate cluster inputs and apply policy updates atomically.
 - [ ] Disable ambient proxies, cookies and credentials.
 - [ ] Enforce redirect, header, wire-byte, time and temporary-storage limits.
 - [ ] Produce an immutable run-scoped response artifact; never stream it to the caller.
@@ -88,6 +101,9 @@ orchestration.
 - [ ] Withhold content on malformed input, timeout, crash, partial scan or missing rules.
 - [ ] Disable rule includes/modules; bound compilation, scanning and match counts.
 - [ ] Support validated immutable bundle updates and rollback.
+- [ ] Test the rule bundle against representative pages and example matching
+  patterns, including technical documentation that quotes prompts. Record useful
+  examples and false positives for tuning; no detection-rate target is required.
 
 Acceptance: a match anywhere, including late in the body or hidden HTML, withholds
 the entire response, even if conversion removes the matching text. Passing content
@@ -104,6 +120,8 @@ This depends on the unfinished substrate runtime, not on implementing research.
 - [ ] Give the inspection pod no Internet access; scope any artifact transfer channel.
 - [ ] Apply sandbox, scratch, CPU/memory and deadline limits to each stage.
 - [ ] Bind artifacts/verdicts to run, stage, content digest and rule bundle.
+- [ ] Release only a valid envelope, atomically after all scans; no body, preview
+  or error path may reach the LLM first.
 - [ ] Reject stale, altered, cross-run and replayed artifacts or results.
 - [ ] Clean up on success, failure, cancellation and controller restart.
 
@@ -119,7 +137,8 @@ Files: HearthAI chart, image/CI workflows, tool adapter, and
 - [ ] Package Rust executable images, rules, fixed profiles, policies and tool registration.
 - [ ] Add Cargo format, lint, test and locked release-build gates to CI, including
   supported container architectures and cross-language contract fixtures.
-- [ ] Return the body as inert text with no HTML rendering or automatic resource loads.
+- [ ] Deliver the validated envelope as external tool data to the LLM. Keep human
+  rendering separate and prevent automatic resource loads or native re-fetching.
 - [ ] Ensure this adapter does not bypass inspection through a native URL loader.
 - [ ] Measure pod startup plus fetch/inspection latency against the actual tool timeout.
 - [ ] Add bounded outcome/timing metrics without source content or URL labels.
@@ -130,7 +149,7 @@ appears only as a fixed error. No rejected content appears in UI, logs, traces,
 stored runs or errors. Documentation remains explicit that a non-match is not a
 safety guarantee.
 
-## Required test cases
+## Implementation test cases
 
 | Area | Cases |
 |---|---|
@@ -139,12 +158,27 @@ safety guarantee.
 | Converter fallback | Poor native extraction triggers local fallback; all converters receive identical HTML; no network calls |
 | Conversion rejection | A match in any candidate aborts the chain; a timeout/crash cannot fall through to another converter |
 | Rules | Direct patterns, HTML entities, hidden markup, Unicode variations, match near end of body |
-| False positives and misses | Legitimate quoted attacks; paraphrased/multilingual/encoded attacks; record actual outcomes |
+| Rule usefulness | Ordinary pages, documentation quoting prompts, and example matches; record false positives for tuning |
 | Failures | Missing/broken rules, timeout, scanner crash, excessive matches, malformed charset, decompression bomb |
 | Networking | DNS rebinding, redirects to private IPs, IPv6/mapped addresses, mixed answers, ambient proxy |
 | Isolation | Network denial in inspector, denied internal destinations, no credentials, immutable handoff |
 | Delivery | No body before scan completion, no partial acceptance, inert HTML, no rejected snippets in errors |
 | Lifecycle | Duplicate request, cancellation, restart, late result, cross-run replay, cleanup |
 
-The existing web-research implementation plan is unchanged. Reuse of this fetch
-tool by another capability can be planned separately.
+## Future consumer contract — no research implementation in this change
+
+The older research plan now points to this dependency. Research must invoke
+webfetch via the broker, preserve its envelope/provenance, and handle rejection
+without accessing raw content or falling back to direct HTTP. When research is
+implemented, parent grants, cancellation, deadlines and byte/call budgets must
+constrain every child fetch. This is a documented composition contract, not a
+second fetch implementation or an instruction to build research now.
+
+Add fetch-side contract fixtures for successful, rejected and failed envelopes;
+use a fake consumer to verify reuse. Full research integration tests belong to
+the later research implementation.
+
+Review incorporated from `claude/pr-10-multi-perspective-review-8u5i05` at
+`edae090`, with Josh's clarifications: scanning is an opportunistic check for LLM
+input, the result envelope is reusable, and future research builds on webfetch.
+Formal attacker categories and numerical security targets are not requirements.

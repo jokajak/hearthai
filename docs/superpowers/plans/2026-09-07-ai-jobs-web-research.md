@@ -1,5 +1,7 @@
 # AI Jobs Web Research Implementation Plan
 
+> **Dependency correction from PR #10 review:** Implement [webfetch and its reusable envelope](../specs/2026-09-12-isolated-webfetch-design.md#reusable-result-envelope) first. Future research consumes that capability through the broker, preserving its provenance, rejection behavior and parent-run budgets. The page-fetch implementation proposed below is superseded by delegation to webfetch; research must not ship a parallel HTTP/conversion/scanning pipeline. Research implementation remains outside the current webfetch work. Existing language/file choices below are historical starting points, not a Python requirement.
+
 > **Planning only.** This document defines the implementation sequence for the first
 > HearthAI tool. It does not authorize implementing a general job runner or the future
 > code-workspace tool.
@@ -382,27 +384,28 @@ token cannot escape one run or survive terminal completion.
 **Acceptance:** A fake executor can complete a model-facing research call end-to-end,
 and generated/checked OpenAPI matches the handler behavior.
 
-### Task 5: Implement the capability broker and SSRF boundary
+### Task 5: Implement the capability broker using webfetch
 
 **Files:**
 
 - Create `service/ai_jobs/src/ai_jobs/capabilities.py`
 - Create `service/ai_jobs/src/ai_jobs/providers.py`
 - Create `service/ai_jobs/tests/test_capabilities.py`
-- Create `service/ai_jobs/tests/test_fetch_policy.py`
+- Create research-to-webfetch envelope and delegation tests (transport/SSRF tests belong to webfetch)
 
 **Steps:**
 
 - [ ] Define typed `search`, `fetch`, and `infer` operations with per-run call, byte,
   LiteLLM input/output token, and elapsed-time budgets resolved by `budgets_for`.
 - [ ] Test denial of ungranted operations and exhaustion of each budget.
-- [ ] Resolve and validate every fetch destination and redirect hop; reject loopback,
-  RFC1918/private, link-local, multicast, unspecified, cluster-service, and cloud
-  metadata destinations for IPv4 and IPv6.
-- [ ] Test DNS rebinding defenses using an injected resolver and connector; validation
-  must apply to the address actually connected to, not only an earlier lookup.
-- [ ] Limit schemes to HTTP(S), response types to research-safe text formats, redirects,
-  decompressed bytes, and parsing time. Do not pass cookies or ambient authorization.
+- [ ] Delegate every page fetch to `web_fetch`. Reuse its destination checks,
+  conversion and inspection; do not implement those again in the research broker.
+- [ ] Validate returned envelopes, retain external provenance, and treat rejected
+  or failed responses as unavailable evidence. No direct-HTTP fallback.
+- [ ] Constrain child fetches by parent grants, remaining deadlines and byte/call
+  budgets; propagate cancellation and charge all attempts to the parent.
+- [ ] Test successful, rejected and failed envelopes with a fake webfetch client;
+  later integration tests verify the same behavior against the deployed capability.
 - [ ] Keep provider credentials inside adapters, redact provider errors, and prohibit
   broker responses from returning secrets or raw unrestricted page bodies.
 - [ ] Configure dedicated LiteLLM credentials with hard deployment-level token/spend

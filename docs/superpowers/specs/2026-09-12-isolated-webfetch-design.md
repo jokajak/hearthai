@@ -12,8 +12,10 @@ check it, and either return the fetched content or reject the entire response.
 
 This is a fetch tool. It does not search, select sources, follow page links,
 summarize, extract answers, or call an LLM. HTTP redirects are the only automatic
-follow-up requests. Web research and new conversation-wide authorization systems
-are outside this change. The existing research plan is unchanged.
+follow-up requests. Research implementation and new conversation-wide authorization
+systems are outside this change. Webfetch establishes a reusable result envelope;
+future web research must consume webfetch through that envelope. Build fetch first,
+then research on top of it, with no parallel fetch/scan/conversion implementation.
 
 The selected approach follows oh-my-pi's local conversion: clean HTML into readable
 Markdown by default, with plain-text and HTML-source options and a bounded local
@@ -27,89 +29,29 @@ a scanned prefix.
 A failed or incomplete inspection also returns no content. A successful inspection
 means only that the configured rules did not match; the response remains untrusted.
 
-## Threat model
+## Why inspect responses
 
-The protected asset is the model's context and any action the model takes as a
-result of reading it, together with the operator's network and cluster. The human
-operator is not the protected party: they choose the URL and read the answer, but
-the model ingests the page.
+Scanning is an opportunistic extra check before fetched content enters the LLM's
+context. This is a personal deployment; malicious content is not an expected
+part of normal use. The tool is not making a comprehensive security claim.
 
-**A human in the loop does not remove the need for inspection.** A language model
-has no enforced boundary between content supplied as tool output and direction
-supplied by the operator. Retrieved text enters the same context as the request
-and is available to influence the next action. Operator URL selection limits an
-attacker's ability to choose their victim; it does nothing once a page the
-operator legitimately wanted carries hostile text. This tool exists to put a gate
-in front of that ingestion, and to be the single fetch path that later
-capabilities — web research among them — are built on rather than bypass.
+The scanner protects the LLM's input, not the human reader. Choosing a URL or
+having a person in the loop does not change which bytes are passed to the model.
+A rule match withholds the response from model context; a non-match simply means
+the configured checks did not flag it. The response remains external data.
+Human-facing display and ordinary browser protections are separate concerns.
 
-### Attackers, and what each control actually stops
+Use a small, useful rule bundle. Check representative pages and known example
+patterns while implementing it, including technical documentation that quotes
+prompts. Keep track of false positives so the tool remains useful. There is no
+promised detection rate, assumed attacker population, or numerical security
+benchmark required by this plan. If a rule causes unnecessary rejection, tune
+the operator-managed bundle rather than letting the model bypass a match.
 
-| Attacker | Goal | Control | Not stopped by it |
-|---|---|---|---|
-| Hostile response aimed at the parsers | Code execution in the worker | Offline inspection pod with no Internet access; non-root, dropped capabilities, read-only root, bounded CPU/memory/time | A compromised scanner can still lie about its own verdict; the result gate trusts a verdict it cannot independently verify |
-| Hostile page or redirect chain | Reach the LAN, metadata endpoints, or cluster APIs | Destination validation with per-redirect DNS pinning, plus independently enforced egress | Nothing, if the configured cluster ranges are empty or wrong — see *Known fail-open* below |
-| Opportunistic injection | Steer any model that reads the page | Rule bundle; whole-response rejection | Anything it has no pattern for |
-| Targeted injection | Steer this model, knowing this gate exists | — | Paraphrase, translation, novel encoding, and instructions carrying no imperative form. Assume this attacker succeeds |
-| Over-broad or compromised rule bundle | Withhold content the operator needs | Reviewed bundles, offline corpus checks before promotion, recorded engine and bundle versions per run | An operator-authored rule that is merely too broad. This is an availability risk the operator owns, not an attack the tool detects |
-
-### Opportunistic and targeted injection are different problems
-
-The detection value of this design rests entirely on the first. Stating the split
-is what makes the claim testable:
-
-- **Opportunistic injection** is mass-deployed and not aimed at HearthAI: text
-  planted in scraped-content farms, SEO pages, comment sections, wiki edits, issue
-  threads, and poisoned documentation mirrors. It reuses published phrasings
-  because that is cheap, not because its author tested it against a gate. Pattern
-  matching works here for the same reason signature antivirus still works on
-  commodity malware, and this is the large majority of what a personal deployment
-  meets.
-- **Targeted injection** is written by someone who knows a rule gate sits in front
-  of this tool. Recall against it is approximately zero, and no rule bundle changes
-  that. *Response inspection* bounds normalization deliberately, so encodings
-  outside those bounded forms pass by construction.
-
-**This tool raises the cost of drive-by injection. It does not defend against a
-motivated attacker who is aiming at this system.** Every statement about
-inspection elsewhere in this document means that and nothing more.
-
-### What "a fetch result you can trust" means
-
-A successful result is a process guarantee, not a judgement about the content:
-every required check completed, and no part of the response reached the caller
-unless all of them passed. It is not a statement that the page is safe.
-
-The complementary guarantee matters just as much for a tool on the critical path —
-that a legitimate page is not silently withheld — and is bounded by the
-false-positive budget below.
-
-### Measured before release, not asserted
-
-The claims above are testable, and this document's acceptance criteria are not
-satisfied by narrative:
-
-- **Recall against opportunistic injection.** Measure the active bundle against a
-  corpus of published injection strings and their common variants. Record the
-  number.
-- **Recall against targeted injection.** Measure against paraphrased, translated
-  and encoded rewrites of that same corpus. The expected result is near zero.
-  Record it, so no later reader mistakes this gate for a defense against it.
-- **False-positive rate.** Measure against a corpus drawn from the operator's real
-  reading: CVE writeups, agent-security papers, framework documentation containing
-  system-prompt examples, issue threads quoting attacks. **A ship/no-ship
-  threshold belongs here and this document does not yet carry one; set it before
-  implementation begins.** A tool that withholds material the operator needs will
-  be worked around, and a bypassed gate is worth less than no gate, because the
-  bypass is undocumented.
-
-### Known fail-open
-
-*Fetch restrictions* denies "configured cluster/service/node ranges". An empty or
-misconfigured range list therefore fails open, while a missing rule bundle
-correctly makes the tool unavailable. Make destination configuration fail closed
-the same way: absent or unparseable range configuration makes the tool
-unavailable rather than unrestricted.
+The existing sandbox and destination limits are ordinary boundaries for a
+server-side fetcher. Missing or malformed required configuration leaves the
+capability unavailable until it is configured; no elaborate threat model is
+needed to justify that default.
 
 ## Implementation language
 
@@ -165,8 +107,7 @@ after completion, failure, cancellation, or recovery from a controller restart.
 
 The result gate verifies the stage identity, artifact binding, active rule bundle,
 complete scan results, and output schema. No partial body is streamed to the
-caller while fetching or scanning. A sandbox does not prove a compromised scanner's
-verdict is honest; keep dependencies small and maintained.
+caller while fetching or scanning. Keep dependencies small and maintained.
 
 ## Tool contract
 
@@ -185,14 +126,61 @@ Reject unknown request fields. V1 uses GET with fixed headers and supports publi
 HTTP(S) text responses. No caller-supplied headers, cookies, credentials,
 skip-scan option, or rules.
 
-A successful tool result contains:
+### Reusable result envelope
 
-- `status: "ok"`;
-- the validated final URL and HTTP status;
-- supported content type and retrieval time;
-- `content`: the response in the requested format, without summarization;
-- `format` and a fixed `conversion_method` identifying the converter used;
-- `trust: "external_untrusted"` and `inspection: "no_match"`.
+Webfetch is the first user of a versioned tool-result envelope. Define it now so
+future consumers, including research, can carry the same status and provenance
+without inventing another fetch response. Keep the common envelope small and
+the tool's payload typed; this does not introduce a generic execution API.
+
+The common fields are `envelope_version`, `tool`, `tool_version`, `status`,
+`trust`, `inspection`, `data`, and `error`. `data` is validated against the named
+tool/version's schema. A webfetch success looks like:
+
+```json
+{
+  "envelope_version": 1,
+  "tool": "web_fetch",
+  "tool_version": 1,
+  "status": "ok",
+  "trust": "external_untrusted",
+  "inspection": {"status": "no_match", "policy_id": "web-content-v1"},
+  "data": {
+    "source_id": "source-1",
+    "final_url": "https://example.com/page",
+    "http_status": 200,
+    "content_type": "text/html",
+    "retrieved_at": "2026-09-12T12:00:00Z",
+    "format": "markdown",
+    "conversion_method": "native",
+    "content": "# Example\n\nFetched page text."
+  },
+  "error": null
+}
+```
+
+The trusted result gate constructs the envelope after inspection. Source-provided
+JSON resembling these fields remains text inside `data.content`; it cannot set
+the real envelope's status, tool identity or trust. All remote strings in `data`,
+including URLs, are inspected. Control fields use fixed enums or validated
+server-owned identifiers. Internal records bind the result to its run, artifact
+digest and immutable policy digest; `policy_id` is a reference to that policy,
+not a source-authored explanation or a replacement for the internal binding.
+
+Envelope v1 rejects unknown fields and unsupported versions. For `web_fetch:v1`,
+`ok` requires typed
+non-null `data`, null `error` and a completed `no_match` inspection. `rejected`
+or `error` requires null `data` and a fixed error code/message. Inspection status
+is one of `no_match`, `match`, `failed`, or `not_run`; only `no_match` permits
+success. An absent policy uses a null policy ID and cannot produce success.
+Source IDs are run-scoped opaque identifiers, not filesystem or download handles.
+
+Consumers validate the envelope before admitting content to model context. A
+future research caller must preserve provenance when using or transforming the
+payload; it cannot flatten the response into unlabeled trusted instructions.
+Envelope serialization is an enforceable integration contract, not a magic
+prompt boundary: a model can still be influenced by admitted content. This plan
+does not implement a new conversation-wide taint engine or authorize actions.
 
 The trust marker describes fetched data; it grants no permissions. A 4xx/5xx HTTP
 response may be returned with its actual status if its text body passes the same
@@ -202,7 +190,16 @@ Every rejection/error has a fixed code and message, with no remote body, title,
 headers, URL, matched text, or worker exception embedded in the error. For example:
 
 ```json
-{"status":"rejected","code":"content_rejected","message":"Response content was withheld."}
+{
+  "envelope_version": 1,
+  "tool": "web_fetch",
+  "tool_version": 1,
+  "status": "rejected",
+  "trust": "external_untrusted",
+  "inspection": {"status": "match", "policy_id": "web-content-v1"},
+  "data": null,
+  "error": {"code": "content_rejected", "message": "Response content was withheld from model context."}
+}
 ```
 
 | Outcome | Code | Response body returned |
@@ -221,9 +218,28 @@ lifecycle. Do not persist raw URLs/bodies by blindly serializing the request or
 result into the existing run store. Keep response delivery transient and durable
 audit metadata bounded.
 
+### Future research depends on webfetch
+
+Deliver the inspected fetch and its envelope first. Future `web_research` uses
+the typed webfetch capability through the `ai-jobs` broker, consumes only successful
+envelopes, and handles rejection as unavailable evidence. It must not gain a direct
+HTTP client, another converter/scanner, a raw-body route, or an alternate loader
+to get around a rejection. Research has no authority to disable the scan.
+
+The broker forwards only the parent run's existing grants, passes the remaining
+deadline and resource ceilings, and charges each child fetch to the parent's
+budget. A child cannot mint a fresh unlimited budget. Add this composition when
+research is implemented; do not implement research alongside webfetch now.
+Research's eventual own result can reuse the envelope with a research-specific
+payload schema and preserved source provenance. Its input admission (including
+search snippets) and derived-output policy must be designed then; a source's
+`no_match` verdict does not certify a newly generated summary.
+
 ## Fetch restrictions
 
 - HTTP(S) only, initially ports 80/443, no URL userinfo or authentication.
+- Require nonempty, valid deployment destination ranges before readiness or run
+  admission; missing/empty/malformed policy fails closed. Validate updates atomically.
 - Resolve and validate every destination and redirect. Deny private, loopback,
   link-local, metadata, reserved, and configured cluster/service/node ranges.
   Cover IPv6, IPv4-mapped IPv6, and mixed public/private DNS answers.
@@ -341,10 +357,9 @@ scanner and resource-control APIs used by the implementation.
   valid bundle, the tool is unavailable.
 - Every enabled rule is enforced. No per-request bypass or warn-and-return mode.
 
-YARA cannot reliably identify arbitrary semantic instructions. Paraphrases,
-multilingual text, and novel encodings can evade patterns. Conversely, legitimate
-security documentation can match an active rule and be rejected. Track those
-tradeoffs in the rule tests; do not call an unmatched page “safe.”
+YARA matches configured patterns, not intent. Some instructions may not match,
+and legitimate documentation may match. Treat it as an extra check and tune the
+bundle for normal use; a non-match leaves the content labeled as external data.
 
 The existing HearthAI rule that external data does not grant authority still
 applies. This fetch implementation adds no planner, summarizer, research loop,
@@ -352,9 +367,18 @@ new action-approval mechanism, or session-taint framework.
 
 ## Delivery, storage, and packaging
 
-Return content as an escaped/inert tool string. Do not render HTML or automatically
-load images, links, or previews from the response. Verify the tool adapter preserves
-that behavior; it must not re-fetch the URL through a native loader.
+Deliver the validated envelope through the tool adapter; admitted content enters
+the LLM only as external tool data. Human-facing rendering is a separate concern:
+the UI may format admitted Markdown using ordinary browser safety controls, but
+must not automatically load response-specified resources or re-fetch the URL
+through a native loader. Rendering is not a substitute for the LLM ingestion gate.
+
+A rejection withholds bytes from model context, including model-visible errors,
+previews and citations. It is not a content-rating or human-safety verdict. A human
+may independently inspect the page outside model context; no human-viewing tool
+or raw quarantine UI is added here. Human inspection or approval of the URL does
+not turn a rejected response into admitted model input. Any future human-only
+diagnostic path must remain separate from model-accessible tools and context.
 
 Record run ID, outcome, bounded rule IDs, policy versions, byte counts and timings.
 Keep bodies, full URLs, headers, matched strings, and worker exception text out of
@@ -371,8 +395,7 @@ pieces to exist; it does not treat scaffolding as a deployed executor.
 
 A permitted URL returns its content in the requested format after all checks pass.
 A matching rule, incomplete scan, forbidden destination, or exceeded limit
-returns a fixed error with none of the response content. Tests demonstrate both
-the isolation boundary and the known limits of pattern detection.
+returns a fixed error with none of the response content. Tests check the isolation and return/rejection behavior using representative fixtures.
 
 ## Existing harness behavior informing the proposal
 

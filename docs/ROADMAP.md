@@ -1,6 +1,6 @@
 # HearthAI Roadmap
 
-> **Proposed safer fetch (2026-09-12):** Add an isolated URL fetch tool with strict response rejection and YARA inspection. See the [implementation plan](superpowers/plans/2026-09-12-isolated-webfetch.md). This proposal does not change the existing capability ordering or implement web research.
+> **Web capability sequence:** Add isolated webfetch with a reusable result envelope and opportunistic inspection before LLM ingestion. Future research consumes webfetch rather than building a parallel fetch pipeline. See the [implementation plan](superpowers/plans/2026-09-12-isolated-webfetch.md). Research is not implemented in this change; Git remains the first substrate validation profile.
 
 **Status:** authoritative capability roadmap<br>
 **Last updated:** 2026-09-09<br>
@@ -37,7 +37,7 @@ This section supersedes the earlier *Direction*, numbered ordering, and 0.1 excl
 HearthAI's first proof of value is a useful OpenWebUI work surface, not an isolated memory experiment. The delivery order is:
 
 1. **Git change work first:** support any repository that carries both an explicit HearthAI authorization record and a GitHub App installation selection. A dedicated HearthAI GitHub App and short-lived installation tokens make GitHub activity attributable to `hearthai[bot]`, never Josh. The agent may create a branch, make changes, run the repository's own checks, and open a pull request; it cannot merge. Those checks are repository-controlled code, so what contains them is the sandbox described in *Execution substrate* below, not an allowlist of check names. The `ai-jobs` control plane owns the durable run audit.
-2. **Bounded web research:** make current, source-backed research available from the same chat surface through an isolated, fixed-purpose worker. It is not a generic executor.
+2. **Webfetch, then bounded web research:** establish the isolated fetch/conversion tool and its reusable result envelope first. Later, make source-backed research available through a fixed-purpose worker that consumes webfetch. No separate research fetcher is implemented in parallel.
 3. **Automatic topic organization:** topic changes create a clean logical conversation by default. Detection belongs to a HearthAI topic manager at the chat boundary, not to the answering model, and the boundary defaults closed: a false split costs a re-selected artifact, never lost history. Preserve no transcript unless an explicit artifact, named project/repository, or short relevant task brief is selected. Old topics remain linked for navigation but do not contaminate the next prompt. Presenting split topics as navigable is chat-surface behavior OpenWebUI does not provide, so this is the one capability that may require relaxing the *Direction* non-goal of building no custom web UI — through an OpenWebUI extension if one suffices, otherwise by an explicit recorded decision.
 4. **Shareable memory:** integrate the existing skill and service where it improves these workflows. Sharing remains deliberate and shared writes still require approval.
 5. **Governed MCP and richer household identity:** follow only after the above boundaries have real-world evidence.
@@ -215,6 +215,10 @@ The current service's unrevocable full-access tokens are implementation evidence
 - whether personal memory should remain gateway-owned or move toward a HearthAI-owned boundary.
 
 ## 0.3 — Delegated web research with `ai-jobs`
+
+**Prerequisite:** webfetch and its result envelope. Page-fetch operations below
+refer to reuse of that capability; research adds orchestration later, not another
+HTTP/conversion/scanning implementation.
 
 ### Purpose
 
