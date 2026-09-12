@@ -1,5 +1,7 @@
 # HearthAI Architecture
 
+> **Proposed safer fetch (2026-09-12):** The [webfetch design](superpowers/specs/2026-09-12-isolated-webfetch-design.md) and [plan](superpowers/plans/2026-09-12-isolated-webfetch.md) cover a URL-in, content-or-error-out tool with isolated inspection and whole-response rejection, including YARA rules. Planning only; no search, summarization, or research implementation.
+
 **Status:** working architecture for the authoritative capability roadmap  
 **Roadmap:** [`ROADMAP.md`](ROADMAP.md)  
 **Design detail:** [`superpowers/specs/2026-08-30-capability-roadmap-design.md`](superpowers/specs/2026-08-30-capability-roadmap-design.md)
@@ -11,9 +13,21 @@ Long-term personal-memory ownership is unresolved. OpenWebUI supplies personal m
 ## Current capability priorities
 
 - **Git change work:** the first execution profile, for any repository carrying both an explicit HearthAI authorization record and a GitHub App installation selection. See *Execution substrate* below for the materializer/worker/publisher split and its credential boundaries: the sandboxed worker holds no GitHub credential and runs repository-controlled checks, and only the separate publisher pod acts as `hearthai[bot]`. No merge authority.
-- **Web research:** a bounded, cited capability with an isolated worker; not general browsing or execution.
+- **Webfetch, then web research:** first deliver isolated fetching, conversion and opportunistic inspection through a reusable result envelope. Future bounded research consumes this capability; it does not implement a parallel fetcher. The scan is an extra check before LLM ingestion, not a human content filter.
 - **Topic manager:** creates clean logical chats on topic shifts. Detection is HearthAI's, at the chat boundary, not the answering model's mid-response; the boundary defaults closed, so a false split costs a re-selected artifact rather than lost history. By default it provides no predecessor transcript to the model; only selected artifacts, named project/repository context, or a brief relevant task summary may cross the boundary. Keeping earlier topics navigable is chat-surface behavior OpenWebUI does not provide, so this capability may require relaxing the 0.1 *no custom frontend* exclusion — by an OpenWebUI extension if one suffices, otherwise by an explicit recorded decision.
 - **Audit:** every consequential agent run is durably attributable to a request, agent identity, approval, repository, commits, checks, and external actor.
+
+## Implementation languages
+
+HearthAI has no Python-only implementation requirement. Select languages per
+component and keep service/worker contracts language-neutral. Existing Python
+scaffolding is an implementation starting point, not an architectural constraint.
+
+The [safer webfetch design](superpowers/specs/2026-09-12-isolated-webfetch-design.md#implementation-language)
+recommends Rust for fetching, conversion and inspection to use its native
+dependencies directly. Go is a viable candidate for the `ai-jobs` control plane.
+The control-plane language remains a separate decision; a rewrite is not required
+to introduce a Rust worker behind the existing versioned contracts.
 
 ## Execution substrate
 
@@ -314,6 +328,12 @@ OpenWebUI and one Agent Skills-compatible host use the same named store. A host 
 
 ## 0.3 — Delegated web research with `ai-jobs`
 
+**Dependency:** the [webfetch capability and envelope](superpowers/specs/2026-09-12-isolated-webfetch-design.md#reusable-result-envelope)
+ship first. The legacy diagram below groups search and fetch for brevity; the
+research broker's page-fetch operation delegates to webfetch and preserves its
+result envelope. It does not own another HTTP/conversion/inspection pipeline.
+Research is a future consumer and is not implemented in the webfetch change.
+
 ### Layered boundary
 
 ```mermaid
@@ -334,7 +354,7 @@ flowchart LR
 
 OpenWebUI invokes one model-facing web-research capability. `ai-jobs` creates an internal execution record and one Kubernetes Job using a fixed worker image and policy. Research either returns a terminal result during that synchronous tool call or fails as `deadline_exceeded`; asynchronous continuation, job identifiers, and polling are not part of 0.3.
 
-The worker uses LiteLLM plus constrained search and page-fetch operations brokered by `ai-jobs`. Provider credentials stay in the control plane, while the worker receives only a job-scoped HearthAI capability. Web content is untrusted evidence and cannot expand worker authority or bypass the existing approval boundary for shared-memory writes.
+The worker uses LiteLLM plus constrained search and page-fetch operations brokered by `ai-jobs`. Page fetch delegates to `web_fetch`, with parent-run grants and budgets; only successful envelopes contribute content, retaining external provenance. Provider credentials stay in the control plane, while the worker receives only a job-scoped HearthAI capability. Web content is untrusted evidence and cannot expand worker authority or bypass the existing approval boundary for shared-memory writes.
 
 ### Worker isolation
 

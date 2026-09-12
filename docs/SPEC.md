@@ -1,5 +1,7 @@
 # Personal AI Infrastructure — Validated Behavioral Specification
 
+> **Proposed fetch behavior (2026-09-12):** The [webfetch design](superpowers/specs/2026-09-12-isolated-webfetch-design.md) returns fetched content only after complete inspection. Any enabled detection-rule match rejects the whole response; inspection failures return no content. Non-matching responses remain external, untrusted data.
+
 Status: interview-validated, pre-design. This captures **what the system does and how it behaves**, not how it is implemented. Decisions marked ⏸ are explicitly deferred; ⚠ marks known risks accepted with eyes open.
 
 > This is an older behavioral exploration. [ROADMAP.md](ROADMAP.md) and
