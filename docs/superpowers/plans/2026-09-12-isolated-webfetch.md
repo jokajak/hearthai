@@ -12,11 +12,27 @@ native-first cleanup with local extraction fallback. Markdown is the default,
 with text/HTML options; no LLM is used for conversion. This is a documentation-only
 implementation plan, not a request to start runtime changes in this PR.
 
+## Language and package boundaries
+
+Recommend Rust for the fetch worker and offline inspector, with direct YARA-X
+and HTML-to-Markdown crate dependencies. HearthAI has no Python-only requirement.
+Go remains a candidate for the control plane; this plan does not mandate its
+rewrite. The wire contracts must work independently of implementation language.
+
+Proposed workspace: `service/web_fetch/`, containing `contracts`,
+`fetch-worker`, and `inspector` crates. Keep separate executable images and
+permissions for the two stages. Pin `rust-toolchain.toml` and `Cargo.lock`.
+
 ## 1. Add the tool contract
 
-Files: `service/ai_jobs/src/ai_jobs/tools/web_fetch.py`, registry, OpenAPI,
-run/result handling, and contract fixtures.
+Files: language-neutral schemas and JSON fixtures under `service/web_fetch/`,
+Rust wire types in its `contracts` crate, plus control-plane registry, OpenAPI and
+run/result handling. If the existing Python control plane is retained, add its
+thin tool definition at `service/ai_jobs/src/ai_jobs/tools/web_fetch.py`; worker
+logic belongs in Rust.
 
+- [ ] Run shared JSON fixtures against Rust types and the current control-plane
+  adapter; verify identical validation of unknown fields, enums and size limits.
 - [ ] Define the URL request with optional markdown/text/html format and exact success/error schemas.
 - [ ] Return content in the requested format with actual HTTP status and validated final URL.
 - [ ] Include the output format and a fixed conversion-method identifier in successful results.
@@ -29,7 +45,7 @@ existing idempotency contract; error messages cannot contain source content.
 
 ## 2. Implement the bounded fetcher
 
-Proposed package: `service/web_fetch_worker/`.
+Proposed Rust crate: `service/web_fetch/fetch-worker/`.
 
 - [ ] Implement fixed HTTP(S) GET and supported text media/encoding handling.
 - [ ] Validate and pin DNS results to the connection on every redirect.
@@ -44,17 +60,20 @@ responses. No forbidden address is contacted.
 
 ## 3. Implement offline inspection, conversion and YARA rules
 
-Proposed package: `service/web_fetch_inspector/`, with decoder, inspection pipeline,
-YARA-X adapter, `conversion.py`, local converter adapters, versioned `rules/` bundle
-and fixtures. Keep these components independent from research orchestration.
+Proposed Rust crate: `service/web_fetch/inspector/`, with decoder, inspection
+pipeline, YARA-X adapter, `conversion.rs`, local converter adapters, versioned
+`rules/` bundle and fixtures. Keep these components independent from research
+orchestration.
 
 - [ ] Pin YARA-X and validate the supported rule subset.
 - [ ] Scan raw bytes, decoded body, bounded inspection-only normalized forms, and
   every final returned text field.
-- [ ] Pin the Rust HTML-to-Markdown engine's Python binding and enable oh-my-pi-style
+- [ ] Pin the HTML-to-Markdown Rust crate and enable oh-my-pi-style
   content cleanup; preserve headings, lists, code blocks, tables and useful links.
-- [ ] Add a fixed local fallback chain: native conversion, Trafilatura extraction,
-  then basic body conversion without aggressive cleanup.
+- [ ] Qualify a Rust main-content extractor using the conversion corpus, then pin
+  the local fallback chain: native conversion, qualified extraction, basic body
+  conversion without aggressive cleanup. Trafilatura is not required. If no
+  extractor improves results, record that evidence and use the two-stage chain.
 - [ ] Pass the same already-downloaded HTML to every converter. Do not use remote
   readers, URL-fetching CLIs or automatic alternate-page requests.
 - [ ] Use deterministic quality checks, with fixtures for short pages, documentation
@@ -97,7 +116,9 @@ credentials or a service-account token. No cancelled run releases late content.
 Files: HearthAI chart, image/CI workflows, tool adapter, and
 `docs/runbooks/webfetch.md`.
 
-- [ ] Package images, rules, fixed profiles, policies and tool registration.
+- [ ] Package Rust executable images, rules, fixed profiles, policies and tool registration.
+- [ ] Add Cargo format, lint, test and locked release-build gates to CI, including
+  supported container architectures and cross-language contract fixtures.
 - [ ] Return the body as inert text with no HTML rendering or automatic resource loads.
 - [ ] Ensure this adapter does not bypass inspection through a native URL loader.
 - [ ] Measure pod startup plus fetch/inspection latency against the actual tool timeout.

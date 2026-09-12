@@ -27,6 +27,31 @@ a scanned prefix.
 A failed or incomplete inspection also returns no content. A successful inspection
 means only that the configured rules did not match; the response remains untrusted.
 
+## Implementation language
+
+HearthAI is not constrained to Python. Choose languages per component based on
+its libraries, runtime and maintenance needs; existing scaffolding does not
+determine every future service's implementation.
+
+**Recommendation: Rust for both webfetch stages.** Use YARA-X and the
+HTML-to-Markdown engine directly as Rust crates. This avoids a language-binding
+layer around the core inspection/conversion dependencies and lets the worker
+images ship compiled executables without a Python interpreter. It does not imply
+that all dependencies are statically linked or that Rust replaces sandboxing.
+
+Go is a viable alternative, especially for the HTTP/Kubernetes-oriented
+`ai-jobs` control plane. Keep that decision separate: the existing Python
+control-plane scaffolding can invoke Rust workers through versioned JSON
+contracts. No shared Python package or in-process language binding should be
+required between those components. A control-plane rewrite is not a prerequisite
+for this fetch tool, nor is retaining Python a permanent architecture constraint.
+
+Use a Cargo workspace for the fetch worker, offline inspector and shared Rust
+wire types. Publish language-neutral schemas and common JSON fixtures so the
+current control plane and any future Go or Rust implementation can validate
+identical requests, results, errors and stage messages. Pin the Rust toolchain
+and dependency lockfile; test the target container architectures in CI.
+
 ## Execution
 
 Use the existing `ai-jobs` admission and fixed-profile execution boundaries.
@@ -168,9 +193,16 @@ response. This is a conversion strategy, not a copy of its entire URL reader.
 
 | Order | Converter | Behavior |
 |---|---|---|
-| 1 | Native HTML-to-Markdown | Use the Rust `html-to-markdown` engine used by oh-my-pi, through its Python binding where supported. Enable content cleanup to remove navigation, forms, headers/footers and script/style boilerplate. Preserve headings, lists, code blocks, tables and useful links. |
-| 2 | Trafilatura | If native conversion cannot produce usable content, run local extraction on the already-downloaded HTML. Use the library API, never its URL-fetching CLI. |
+| 1 | Native HTML-to-Markdown | Use the Rust `html-to-markdown` engine used by oh-my-pi, directly as a Rust crate. Enable content cleanup to remove navigation, forms, headers/footers and script/style boilerplate. Preserve headings, lists, code blocks, tables and useful links. |
+| 2 | Local main-content extraction | If native conversion cannot produce usable content, run a fixture-qualified Rust extractor on the already-downloaded HTML. Select the crate during the conversion spike; no claim of Trafilatura-equivalent extraction quality is assumed. |
 | 3 | Basic local conversion | If main-content extraction is unsuitable for the page, convert the body without aggressive boilerplate removal. Preserve short pages and structured reference material that an article extractor could discard. |
+
+Trafilatura was named in the earlier draft because oh-my-pi supports it, but it
+is not a required dependency. Preserve the native-first/local-fallback behavior
+without requiring a Python runtime. Qualify a Rust extractor on the actual
+conversion corpus; if none improves results, explicitly record the evidence and
+use native cleanup followed by basic conversion rather than shipping an unproven
+middle stage.
 
 Pin and fixture-test the selected libraries during implementation. The fallback
 order is operator-owned and fixed for the profile; the model chooses only the
@@ -210,8 +242,9 @@ any ERROR withholds it. There is no voting or model override.
 Use a pinned engine and a small reviewed rule bundle, with optional
 operator-maintained bundles. Support a tested subset of YARA syntax; do not
 promise all existing YARA rules work unchanged. The official
-[YARA-X Python API](https://virustotal.github.io/yara-x/docs/api/python/)
-provides compilation, byte scanning, namespaces, and scan timeouts.
+[YARA-X Rust API](https://virustotal.github.io/yara-x/docs/api/rust/)
+supports direct integration through the `yara-x` crate. Pin and test the compiler,
+scanner and resource-control APIs used by the implementation.
 
 - Compile and validate rule bundles before deployment.
 - Disable includes and modules in the initial supported subset.

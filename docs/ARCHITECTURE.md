@@ -17,6 +17,18 @@ Long-term personal-memory ownership is unresolved. OpenWebUI supplies personal m
 - **Topic manager:** creates clean logical chats on topic shifts. Detection is HearthAI's, at the chat boundary, not the answering model's mid-response; the boundary defaults closed, so a false split costs a re-selected artifact rather than lost history. By default it provides no predecessor transcript to the model; only selected artifacts, named project/repository context, or a brief relevant task summary may cross the boundary. Keeping earlier topics navigable is chat-surface behavior OpenWebUI does not provide, so this capability may require relaxing the 0.1 *no custom frontend* exclusion — by an OpenWebUI extension if one suffices, otherwise by an explicit recorded decision.
 - **Audit:** every consequential agent run is durably attributable to a request, agent identity, approval, repository, commits, checks, and external actor.
 
+## Implementation languages
+
+HearthAI has no Python-only implementation requirement. Select languages per
+component and keep service/worker contracts language-neutral. Existing Python
+scaffolding is an implementation starting point, not an architectural constraint.
+
+The [safer webfetch design](superpowers/specs/2026-09-12-isolated-webfetch-design.md#implementation-language)
+recommends Rust for fetching, conversion and inspection to use its native
+dependencies directly. Go is a viable candidate for the `ai-jobs` control plane.
+The control-plane language remains a separate decision; a rewrite is not required
+to introduce a Rust worker behind the existing versioned contracts.
+
 ## Execution substrate
 
 The **`ai-jobs` control plane** is HearthAI's distinct execution substrate. It admits typed,
