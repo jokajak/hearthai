@@ -1,5 +1,7 @@
 # AI Jobs Web Research Implementation Plan
 
+> **2026-09-12 proposed extension:** The [isolated webfetch design](../specs/2026-09-12-isolated-webfetch-design.md) and [implementation plan](2026-09-12-isolated-webfetch.md) supersede this plan's response-handling details, single-pod assumption where stage isolation requires separate pods, and application deployment handoff. They require whole-response rejection, YARA-X inspection, and provenance/action gates before model exposure. The current roadmap's Git-first substrate ordering remains authoritative; references below to research as the first tool are historical.
+
 > **Planning only.** This document defines the implementation sequence for the first
 > HearthAI tool. It does not authorize implementing a general job runner or the future
 > code-workspace tool.

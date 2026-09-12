@@ -1,5 +1,7 @@
 # Personal AI Infrastructure — Validated Behavioral Specification
 
+> **Proposed clarification to §§6–7 and §11.1 (2026-09-12):** The [webfetch design](superpowers/specs/2026-09-12-isolated-webfetch-design.md) adds whole-response rejection on every enabled enforcement-detector hit and withholds content on incomplete inspection. YARA matches can deny admission; non-matches never promote external content to trusted authority. Provenance and deterministic action enforcement remain required.
+
 Status: interview-validated, pre-design. This captures **what the system does and how it behaves**, not how it is implemented. Decisions marked ⏸ are explicitly deferred; ⚠ marks known risks accepted with eyes open.
 
 > This is an older behavioral exploration. [ROADMAP.md](ROADMAP.md) and

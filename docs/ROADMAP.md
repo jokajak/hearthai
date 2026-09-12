@@ -1,5 +1,7 @@
 # HearthAI Roadmap
 
+> **Proposed web capability prerequisite (2026-09-12):** Implement the [isolated webfetch plan](superpowers/plans/2026-09-12-isolated-webfetch.md) before enabling web content in chat or research. It adds strict response rejection, YARA-X inspection, and server-side provenance/action gates. Git change work remains the first substrate validation profile; this proposal does not mark web research complete.
+
 **Status:** authoritative capability roadmap<br>
 **Last updated:** 2026-09-09<br>
 **Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)<br>
