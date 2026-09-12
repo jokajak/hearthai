@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hearthai.invalid/schemas/web-fetch-request.v1.schema.json",
+  "title": "WebFetchRequest",
+  "description": "Model-facing request for web_fetch:v1. The caller supplies a URL and an optional output format and nothing else: no headers, credentials, rules, limits, images, or pod configuration.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["url"],
+  "properties": {
+    "url": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 2048,
+      "description": "Absolute http(s) URL without userinfo, restricted to ports 80 and 443."
+    },
+    "format": {
+      "type": "string",
+      "enum": ["markdown", "text", "html"],
+      "default": "markdown",
+      "description": "Deterministic output format. It never affects inspection policy."
+    }
+  }
+}

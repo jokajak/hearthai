@@ -1,0 +1,5 @@
+# Pinned so the wire contracts, the YARA-X engine and the conversion chain are
+# built by one known compiler everywhere, including the release images.
+[toolchain]
+channel = "1.94.1"
+components = ["rustfmt", "clippy"]

@@ -1,0 +1,16 @@
+[package]
+name = "hearthai-web-fetch-contracts"
+description = "Versioned wire types for the reusable tool-result envelope and web_fetch:v1"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

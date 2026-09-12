@@ -1,0 +1,26 @@
+[package]
+name = "hearthai-web-fetch-inspector"
+description = "Offline decode, detection and conversion stage for web_fetch:v1"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+hearthai-web-fetch-contracts.workspace = true
+hearthai-web-fetch-worker = { path = "../fetch-worker", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.11.0"
+encoding_rs = "0.8.41"
+flate2 = { version = "1.1.8", default-features = false, features = ["rust_backend"] }
+htmd = "0.5.5"
+dom_smoothie = "0.18.1"
+yara-x = { version = "1.20.0", default-features = false, features = ["constant-folding"] }
+
+[dev-dependencies]
+flate2 = { version = "1.1.8", default-features = false, features = ["rust_backend"] }
+
+[lints]
+workspace = true

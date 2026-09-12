@@ -1,0 +1,4 @@
+# Wider than the default so the contract validation reads as one statement per
+# rule instead of wrapping every field check across three lines.
+max_width = 110
+use_small_heuristics = "Max"

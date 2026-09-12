@@ -1,0 +1,10 @@
+<!doctype html>
+<html><body>
+<nav><a href="/x">Home</a><a href="/y">Archive</a></nav>
+<article>
+  <h1>Why one writer</h1>
+  <p>A git-backed store cannot take concurrent writers without corrupting its index. The deployment therefore pins a single replica and uses the Recreate strategy, so a rolling update never briefly runs two.</p>
+  <p>This is a constraint of the storage format, not a limitation of the scheduler, and it is checked by the chart tests rather than left to convention.</p>
+</article>
+<footer>Copyright</footer>
+</body></html>

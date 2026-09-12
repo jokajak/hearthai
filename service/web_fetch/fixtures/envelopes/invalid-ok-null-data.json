@@ -1,0 +1,10 @@
+{
+  "envelope_version": 1,
+  "tool": "web_fetch",
+  "tool_version": 1,
+  "status": "ok",
+  "trust": "external_untrusted",
+  "inspection": {"status": "no_match", "policy_id": "web-content-v1"},
+  "data": null,
+  "error": null
+}
