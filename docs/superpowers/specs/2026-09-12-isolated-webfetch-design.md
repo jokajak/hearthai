@@ -1,6 +1,7 @@
 # Safer webfetch
 
 **Status:** proposed design; no runtime implementation.
+**Conversion decision:** oh-my-pi-style local conversion selected by Josh; recorded for implementation.
 **Date:** 2026-09-12.
 **Plan:** [implementation steps](../plans/2026-09-12-isolated-webfetch.md).
 
@@ -14,9 +15,10 @@ summarize, extract answers, or call an LLM. HTTP redirects are the only automati
 follow-up requests. Web research and new conversation-wide authorization systems
 are outside this change. The existing research plan is unchanged.
 
-Proposed output behavior follows a conventional fetch tool: convert HTML to Markdown
-by default, with plain-text and HTML-source options. Conversion uses ordinary parser
-code, never an LLM. It preserves content rather than selecting task-specific evidence.
+The selected approach follows oh-my-pi's local conversion: clean HTML into readable
+Markdown by default, with plain-text and HTML-source options and a bounded local
+fallback chain. Conversion uses ordinary parser code, never an LLM. It removes page
+boilerplate while preserving the document's useful content and structure.
 HTML source is returned as inert text, not rendered or executed. If the complete
 response or converted output exceeds the tool's limits, reject it; do not return
 a scanned prefix.
@@ -36,7 +38,7 @@ The fixed webfetch profile has two sequential stages:
 1. **Fetch pod:** downloads one bounded HTTP(S) response into temporary storage.
    It has constrained public-web egress and no model, memory, provider credentials,
    host mounts, or Kubernetes API access.
-2. **Inspection pod:** reads the completed immutable response, decodes and scans it.
+2. **Inspection pod:** reads the completed immutable response, decodes, scans and converts it.
    It has no Internet access or tools. Only a completed successful inspection can
    release the response through the result gate.
 
@@ -80,6 +82,7 @@ A successful tool result contains:
 - the validated final URL and HTTP status;
 - supported content type and retrieval time;
 - `content`: the response in the requested format, without summarization;
+- `format` and a fixed `conversion_method` identifying the converter used;
 - `trust: "external_untrusted"` and `inspection: "no_match"`.
 
 The trust marker describes fetched data; it grants no permissions. A 4xx/5xx HTTP
@@ -143,7 +146,8 @@ Inspect the full response before any of it reaches the caller:
 4. Also scan bounded inspection-only forms that expose HTML entities and Unicode
    obfuscation. These forms help detectors; they do not replace or rewrite the
    returned body. Arbitrary recursive decoding is outside v1.
-5. Convert HTML to the requested format using a pinned, non-executing parser.
+5. Convert HTML using the local conversion chain below. Inspect every candidate
+   output before accepting it or considering another converter.
    Markdown/text conversion removes script/style content; HTML mode returns source.
    Non-HTML text passes through without AI rewriting. This is format conversion,
    not an injection detector. Bound conversion output and resource use.
@@ -155,6 +159,46 @@ All required checks must finish without a match. Detection does not repair the
 response: no deleting a suspicious paragraph and returning the rest.
 The model cannot request a weaker rule set or ask for the rejected bytes.
 Do not automatically retry a rule match.
+
+## Selected conversion approach
+
+Adopt oh-my-pi's native-first HTML cleanup and local extraction fallback. Keep all
+conversion inside the offline inspection pod, working on the same downloaded
+response. This is a conversion strategy, not a copy of its entire URL reader.
+
+| Order | Converter | Behavior |
+|---|---|---|
+| 1 | Native HTML-to-Markdown | Use the Rust `html-to-markdown` engine used by oh-my-pi, through its Python binding where supported. Enable content cleanup to remove navigation, forms, headers/footers and script/style boilerplate. Preserve headings, lists, code blocks, tables and useful links. |
+| 2 | Trafilatura | If native conversion cannot produce usable content, run local extraction on the already-downloaded HTML. Use the library API, never its URL-fetching CLI. |
+| 3 | Basic local conversion | If main-content extraction is unsuitable for the page, convert the body without aggressive boilerplate removal. Preserve short pages and structured reference material that an article extractor could discard. |
+
+Pin and fixture-test the selected libraries during implementation. The fallback
+order is operator-owned and fixed for the profile; the model chooses only the
+output format. Each converter returns content and a fixed method identifier,
+never a suggested URL, tool call, or instruction to the caller.
+
+Use deterministic quality checks to choose between converters: empty output,
+obvious navigation-only output, and lost document structure should trigger the
+next local attempt. Do not reject legitimate short pages merely because they
+are below an arbitrary character threshold. Test documentation and tables as
+well as articles so cleanup does not silently erase the useful part of a page.
+
+Fallback is allowed for ordinary conversion failure or poor extraction quality.
+It is **never** allowed after a detection hit, inspection failure, timeout, crash,
+or resource-limit failure. Scan every produced candidate before evaluating its
+quality; a match rejects the response even if another converter would omit it.
+All attempts share the same total deadline and resource budgets.
+
+For `text`, use local plain-text output with the same cleanup/fallback policy.
+For `html`, return the decoded source as inert text after inspection; this format
+skips conversion, never scanning. Non-HTML text passes through without rewriting.
+No mode executes scripts, loads images, or follows links found in the page.
+
+oh-my-pi also has site-specific handlers, alternate-page requests, remote readers
+and artifact-based truncation. Those remain outside this initial conversion
+implementation. In particular, no Jina/Firecrawl/Parallel request or URL-fetching
+subprocess may escape the offline boundary. Additional formats or handlers need
+their own bounded design; they are not implicit conversion fallbacks.
 
 ## YARA support
 
@@ -221,7 +265,7 @@ not a security audit of either complete application.
 | Harness | Observed fetch behavior | Implication for HearthAI |
 |---|---|---|
 | OpenCode | Defaults to Markdown; supports text/HTML. Uses Turndown for HTML-to-Markdown and a parser for text extraction. Checks a 5 MiB response limit and exposes a timeout capped at 120 seconds. | Deterministic conversion is ordinary fetch behavior; adopt a similarly small format contract. |
-| oh-my-pi | URL reads try site-specific handlers, alternate Markdown/feed resources and reader backends. Its default reader order starts with local native HTML-to-Markdown, then other local/remote fallbacks. Supports raw mode; large returned results are truncated with an artifact reference. | Content extraction is distinct from research, but automatic alternate requests, remote readers and artifact workflows are unnecessary for this first fetch tool. |
+| oh-my-pi | URL reads try site-specific handlers, alternate Markdown/feed resources and reader backends. Its default reader order starts with local native HTML-to-Markdown, then other local/remote fallbacks. Supports raw mode; large returned results are truncated with an artifact reference. | Selected reference for native-first cleanup and local extraction fallback. Automatic alternate requests, remote readers and artifact workflows are outside this first fetch tool. |
 
 Neither inspected fetch path includes a YARA/prompt-injection match gate that
 rejects an entire response before returning it. Removing scripts or navigation
@@ -232,5 +276,6 @@ OpenCode source: [webfetch.ts](https://github.com/anomalyco/opencode/blob/95daf9
 oh-my-pi sources: [fetch.ts](https://github.com/can1357/oh-my-pi/blob/540a7292d903723558a807fcb95c687f72d015f3/packages/coding-agent/src/tools/fetch.ts),
 [native HTML conversion](https://github.com/can1357/oh-my-pi/blob/540a7292d903723558a807fcb95c687f72d015f3/crates/pi-natives/src/html.rs).
 
-The format choices above are proposed from this comparison. The user's requirement
-is safer fetch with rejection on detection; it does not require raw-only output.
+Josh selected the oh-my-pi conversion approach after reviewing this comparison.
+The implementation steps are recorded in the linked plan; this document does not
+claim the runtime has been implemented.
