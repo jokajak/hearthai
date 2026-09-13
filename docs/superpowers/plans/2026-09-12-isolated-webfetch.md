@@ -87,6 +87,7 @@ Proposed Rust crate: `service/web_fetch/fetch-worker/`.
 - [x] Implement fixed HTTP(S) GET and supported text media/encoding handling.
 - [x] Validate and pin DNS results to the connection on every redirect.
 - [x] Deny non-public and configured cluster destinations, including IPv6 edge cases.
+  An optional allow-list narrows further; the layers only ever subtract.
 - [x] Refuse readiness and admission when destination configuration is absent,
   empty or malformed; validate cluster inputs and apply policy updates atomically.
 - [x] Disable ambient proxies, cookies and credentials.
@@ -130,6 +131,8 @@ orchestration.
 - [x] Test the rule bundle against representative pages and example matching
   patterns, including technical documentation that quotes prompts. Record useful
   examples and false positives for tuning; no detection-rate target is required.
+  Documentation quoting a prompt is now let through by an explanatory-context
+  exception, which is evadable by design; the runbook and a named test say so.
 
 Acceptance: a match anywhere, including late in the body or hidden HTML, withholds
 the entire response, even if conversion removes the matching text. Passing content

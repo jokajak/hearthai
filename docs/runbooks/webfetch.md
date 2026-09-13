@@ -34,18 +34,43 @@ capability is unavailable and the service should not report ready.
 
 ### Destination policy
 
-The deployment's own cluster, service and node ranges, which only home-ops
-knows. Everything else non-public - loopback, private, link-local (including
-the metadata endpoint at `169.254.169.254`), and the IPv6, IPv4-mapped and
-6to4 spellings of all of them - is denied by classification and needs no
-configuration.
+`cluster_denied_cidrs` is required and non-empty: the deployment's own cluster,
+service and node ranges, which only home-ops knows. Everything else non-public -
+loopback, private, link-local (including the metadata endpoint at
+`169.254.169.254`), and the IPv6, IPv4-mapped and 6to4 spellings of all of
+them - is denied by classification and needs no configuration.
 
 ```json
 {"cluster_denied_cidrs": ["10.42.0.0/16", "fd12:3456::/32"]}
 ```
 
+`allowed_cidrs` is optional and narrows further: with it set, an address must
+*also* fall inside one of its ranges. Use it to pin the tool to a known set of
+sites.
+
+```json
+{
+  "cluster_denied_cidrs": ["10.42.0.0/16"],
+  "allowed_cidrs": ["93.184.216.0/24", "2606:4700::/32"]
+}
+```
+
+The three layers only ever subtract, and they are applied in that order:
+classification, then the cluster ranges, then the allow-list. An allow-list
+cannot hand back an address the first two took away, so adding one can never
+widen what the fetcher reaches - naming `10.0.0.0/8` in `allowed_cidrs` grants
+nothing.
+
+Omitting `allowed_cidrs` means no extra narrowing. Setting it to `[]` is
+refused at load rather than accepted as "reach nothing": a policy that permits
+no destination is far more likely to be a mistake than an intention, and it
+should surface as an unready service rather than as every fetch failing for no
+stated reason.
+
 An update is applied atomically: a document with one bad entry changes nothing
-and leaves the previous policy enforcing.
+and leaves the previous policy enforcing - including its allow-list, so a
+broken update cannot widen the tool to the whole public web by dropping the
+narrowing.
 
 ### Rule bundle
 
@@ -118,17 +143,41 @@ a weaker rule set, and there is no reason to add one.
 The supported subset is plain strings and regular expressions. Includes and
 modules are disabled; a bundle that needs one does not compile.
 
-### Recorded false positives
+### The explanatory-context exception
 
-These match and are withheld. They are recorded rather than fixed, because no
-pattern distinguishes a page explaining an injection from a page performing one:
+Three of the four rules yield to context. A directive that occurs within 300
+bytes *after* an explanatory marker - `for example`, `an attacker`,
+`prompt injection`, `<pre>`, `<code>`, a fenced code block, and similar - is
+treated as quoted rather than addressed to the model, and does not reject. A
+directive with no such marker before it matches exactly as it would have
+otherwise, so an injection sitting in plain visible body text is unaffected.
 
-- Security documentation quoting `Ignore all previous instructions`.
-- Prompt-engineering write-ups containing chat control tokens such as
-  `<|im_start|>`.
+This clears the two false positives the first bundle was withheld on: security
+documentation quoting `Ignore all previous instructions`, and
+prompt-engineering write-ups containing chat control tokens like `<|im_start|>`.
 
-If one of these blocks work that matters, the fix is an operator decision about
-the bundle - narrow the rule, or accept that the page is not fetchable by the
+**It is a deliberate weakening, and it is evadable.** A page that writes "For
+example, ignore all previous instructions and ..." is suppressed by the same
+mechanism that lets the documentation through, and no pattern distinguishes
+those two cases. The bargain is far fewer useless rejections in exchange for a
+bypass that costs an attacker one sentence. The test
+`the_explanatory_exception_is_evadable_and_that_is_the_price_of_it` asserts the
+bypass works, so anyone tightening the bundle sees it fail before concluding
+they have improved things.
+
+`prompt_injection_hidden_directive` is deliberately outside the exception:
+markup a reader cannot see has no innocent explanation, so framing does not
+suppress it.
+
+### Remaining false positives
+
+One narrower class is still withheld, and is not worth another exception: a
+page *demonstrating* hidden-markup injection, where the entity-decoded
+normalized form exposes a `style="display:none"` example as though it were
+live markup.
+
+If a rule blocks work that matters, the fix is an operator decision about the
+bundle - narrow the rule, or accept that the page is not fetchable by the
 model - and never a bypass on the request.
 
 ## Residual risks
@@ -137,6 +186,10 @@ Stated plainly, because the tool's value depends on not overclaiming:
 
 - **YARA matches patterns, not intent.** An instruction phrased outside the
   bundle passes. There is no detection-rate target and none is implied.
+- **The explanatory-context exception is a known bypass.** Framing an
+  instruction as an example suppresses three of the four rules. This was chosen
+  knowingly, to keep the tool usable on security and prompt-engineering
+  material; see the section above.
 - **Conversion is not detection.** Removing `<script>` and navigation is
   cleanup. The scan over the raw source is what catches an instruction that
   cleanup would have removed.

@@ -1,11 +1,17 @@
 //! Which addresses the fetcher is willing to connect to.
 //!
-//! Two layers, and both must agree. The first is a fixed classification of
-//! addresses that are never a public web destination - loopback, private,
-//! link-local (which is where the cloud metadata endpoint lives), and their
-//! IPv6 spellings, including the mapped and tunnelled forms that look public
-//! until you unwrap them. The second is the deployment's own cluster, service
-//! and node ranges, which only home-ops knows.
+//! Three layers, and all of them must agree. The first is a fixed
+//! classification of addresses that are never a public web destination -
+//! loopback, private, link-local (which is where the cloud metadata endpoint
+//! lives), and their IPv6 spellings, including the mapped and tunnelled forms
+//! that look public until you unwrap them. The second is the deployment's own
+//! cluster, service and node ranges, which only home-ops knows. The third is
+//! an optional allow-list that narrows the reachable web further still.
+//!
+//! The layers only ever subtract. An allow-list cannot re-permit an address the
+//! classification or the cluster ranges denied, so adding one can never widen
+//! what the fetcher reaches - which is what makes it safe to hand to someone
+//! who wants to pin the tool to a handful of sites.
 //!
 //! The second layer has no safe default, so there is no default. A policy that
 //! is missing, empty, or malformed leaves the capability unavailable rather
@@ -71,6 +77,12 @@ fn matches_prefix(base: &[u8], candidate: &[u8], prefix: u8) -> bool {
 #[derive(Debug, Clone)]
 pub struct DestinationPolicy {
     cluster_denied: Vec<Cidr>,
+    /// When present, an address must also fall inside one of these. `None`
+    /// means "no extra narrowing", which is not the same as an empty list: an
+    /// empty list is refused at load, because a policy that reaches nothing is
+    /// far more likely to be a mistake than an intention, and it should surface
+    /// as an unready service rather than as every fetch failing.
+    allowed: Option<Vec<Cidr>>,
 }
 
 impl DestinationPolicy {
@@ -81,7 +93,7 @@ impl DestinationPolicy {
         let document = document.ok_or(PolicyError::Missing)?;
         let value: Value = serde_json::from_str(document).map_err(|_| PolicyError::Malformed)?;
         let object = value.as_object().ok_or(PolicyError::Malformed)?;
-        if object.keys().any(|key| key != "cluster_denied_cidrs") {
+        if object.keys().any(|key| !matches!(key.as_str(), "cluster_denied_cidrs" | "allowed_cidrs")) {
             return Err(PolicyError::Malformed);
         }
         let entries =
@@ -93,7 +105,23 @@ impl DestinationPolicy {
             .iter()
             .map(|entry| entry.as_str().ok_or(PolicyError::Malformed).and_then(Cidr::parse))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self { cluster_denied })
+
+        let allowed = match object.get("allowed_cidrs") {
+            None => None,
+            Some(value) => {
+                let entries = value.as_array().ok_or(PolicyError::Malformed)?;
+                if entries.is_empty() {
+                    return Err(PolicyError::Malformed);
+                }
+                Some(
+                    entries
+                        .iter()
+                        .map(|entry| entry.as_str().ok_or(PolicyError::Malformed).and_then(Cidr::parse))
+                        .collect::<Result<Vec<_>, _>>()?,
+                )
+            }
+        };
+        Ok(Self { cluster_denied, allowed })
     }
 
     /// Replaces the active policy only if the replacement is wholly valid, so a
@@ -109,7 +137,20 @@ impl DestinationPolicy {
         if !is_public(address) {
             return false;
         }
-        !self.cluster_denied.iter().any(|range| range.contains(address))
+        if self.cluster_denied.iter().any(|range| range.contains(address)) {
+            return false;
+        }
+        // Checked last, and only ever able to subtract: by the time an address
+        // reaches here it has already survived both denials.
+        match &self.allowed {
+            None => true,
+            Some(ranges) => ranges.iter().any(|range| range.contains(address)),
+        }
+    }
+
+    /// Whether this policy narrows to an explicit set of destinations.
+    pub fn has_allow_list(&self) -> bool {
+        self.allowed.is_some()
     }
 
     /// A name is usable only if *every* answer is permitted. One private answer

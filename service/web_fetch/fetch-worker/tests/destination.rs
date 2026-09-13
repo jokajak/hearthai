@@ -108,3 +108,85 @@ fn one_private_answer_poisons_the_whole_name() {
     assert!(!policy.permits_all(&[]), "a name with no answers was accepted");
     assert!(policy.permits_all(&[address("93.184.216.34"), address("1.1.1.1")]));
 }
+
+#[test]
+fn an_optional_allow_list_narrows_what_is_reachable() {
+    let policy = DestinationPolicy::from_json(Some(
+        r#"{"cluster_denied_cidrs":["10.42.0.0/16"],"allowed_cidrs":["93.184.216.0/24","2606:4700::/32"]}"#,
+    ))
+    .unwrap();
+    assert!(policy.has_allow_list());
+
+    assert!(policy.permits(address("93.184.216.34")));
+    assert!(policy.permits(address("2606:4700:4700::1111")));
+    // Public, not in any denied range, and still refused: the allow-list is
+    // the whole point.
+    assert!(!policy.permits(address("1.1.1.1")));
+    assert!(!policy.permits(address("2001:4860:4860::8888")));
+}
+
+#[test]
+fn an_allow_list_only_ever_subtracts() {
+    // Every one of these is named in allowed_cidrs and every one is still
+    // refused. An allow-list cannot hand back an address the classification or
+    // the cluster ranges took away, so adding one can never widen the reach.
+    let policy = DestinationPolicy::from_json(Some(
+        r#"{"cluster_denied_cidrs":["10.42.0.0/16"],
+            "allowed_cidrs":["10.42.0.0/16","127.0.0.0/8","169.254.0.0/16","192.168.0.0/16","fd00::/8"]}"#,
+    ))
+    .unwrap();
+    for denied in ["10.42.0.7", "127.0.0.1", "169.254.169.254", "192.168.1.1", "fd00::1"] {
+        assert!(!policy.permits(address(denied)), "an allow-list re-permitted {denied}");
+    }
+}
+
+#[test]
+fn an_allow_list_that_reaches_nothing_is_refused_at_load() {
+    // A policy that permits nothing is far more likely to be a mistake than an
+    // intention. Refusing it here surfaces as an unready service; accepting it
+    // would surface as every fetch failing for no stated reason.
+    assert_eq!(
+        DestinationPolicy::from_json(Some(r#"{"cluster_denied_cidrs":["10.0.0.0/8"],"allowed_cidrs":[]}"#))
+            .unwrap_err(),
+        PolicyError::Malformed
+    );
+    for malformed in [
+        r#"{"cluster_denied_cidrs":["10.0.0.0/8"],"allowed_cidrs":"93.184.216.0/24"}"#,
+        r#"{"cluster_denied_cidrs":["10.0.0.0/8"],"allowed_cidrs":["93.184.216.0/99"]}"#,
+        r#"{"cluster_denied_cidrs":["10.0.0.0/8"],"allowed_cidrs":[93]}"#,
+    ] {
+        assert_eq!(
+            DestinationPolicy::from_json(Some(malformed)).unwrap_err(),
+            PolicyError::Malformed,
+            "accepted {malformed}"
+        );
+    }
+}
+
+#[test]
+fn omitting_the_allow_list_is_not_the_same_as_an_empty_one() {
+    let policy = policy();
+    assert!(!policy.has_allow_list());
+    assert!(policy.permits(address("93.184.216.34")));
+    assert!(policy.permits(address("1.1.1.1")));
+}
+
+#[test]
+fn a_failed_allow_list_update_leaves_the_previous_narrowing_in_place() {
+    let mut active = DestinationPolicy::from_json(Some(
+        r#"{"cluster_denied_cidrs":["10.42.0.0/16"],"allowed_cidrs":["93.184.216.0/24"]}"#,
+    ))
+    .unwrap();
+
+    assert!(
+        active.replace(Some(r#"{"cluster_denied_cidrs":["10.42.0.0/16"],"allowed_cidrs":["bad"]}"#)).is_err()
+    );
+    // Had the broken update been applied piecewise, dropping the allow-list
+    // would have widened the tool to the whole public web.
+    assert!(!active.permits(address("1.1.1.1")), "a failed update widened the reachable set");
+    assert!(active.permits(address("93.184.216.34")));
+
+    // Removing the narrowing is a deliberate, whole, valid document.
+    assert!(active.replace(Some(r#"{"cluster_denied_cidrs":["10.42.0.0/16"]}"#)).is_ok());
+    assert!(active.permits(address("1.1.1.1")));
+}
