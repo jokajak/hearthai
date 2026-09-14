@@ -1,0 +1,10 @@
+{
+  "envelope_version": 1,
+  "tool": "web_fetch",
+  "tool_version": 1,
+  "status": "rejected",
+  "trust": "external_untrusted",
+  "inspection": {"status": "match", "policy_id": "web-content-v1"},
+  "data": null,
+  "error": {"code": "content_rejected", "message": "Matched rule prompt_injection_v1 in https://example.com/page: 'ignore all previous instructions'"}
+}

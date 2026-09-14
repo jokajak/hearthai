@@ -96,22 +96,32 @@ def test_failure_rejects_internal_details():
 
 
 def test_public_openapi_has_only_specific_tool_routes_and_idempotency_header():
+    # Each tool gets its own reviewed route. A second tool is still a second
+    # named route, not a step towards a generic execution endpoint that takes a
+    # tool name and a payload.
     document = json.loads(OPENAPI.read_text())
-    assert set(document["paths"]) == {"/healthz", "/readyz", "/v1/tools/web-research"}
-    operation = document["paths"]["/v1/tools/web-research"]["post"]
-    assert operation["operationId"] == "webResearch"
-    assert operation["parameters"] == [{
-        "name": "Idempotency-Key",
-        "in": "header",
-        "required": True,
-        "schema": {"type": "string", "format": "uuid"},
-        "description": "Adapter-generated identity for one logical invocation.",
-    }]
+    assert set(document["paths"]) == {
+        "/healthz",
+        "/readyz",
+        "/v1/tools/web-research",
+        "/v1/tools/web-fetch",
+    }
+    assert document["paths"]["/v1/tools/web-research"]["post"]["operationId"] == "webResearch"
+    assert document["paths"]["/v1/tools/web-fetch"]["post"]["operationId"] == "webFetch"
+    for route in ("/v1/tools/web-research", "/v1/tools/web-fetch"):
+        assert document["paths"][route]["post"]["parameters"] == [{
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": True,
+            "schema": {"type": "string", "format": "uuid"},
+            "description": "Adapter-generated identity for one logical invocation.",
+        }], route
 
 
-def test_public_request_schema_has_no_runtime_controls():
+@pytest.mark.parametrize("schema", ["WebResearchRequest", "WebFetchRequest"])
+def test_public_request_schema_has_no_runtime_controls(schema):
     document = json.loads(OPENAPI.read_text())
-    request_schema = json.dumps(document["components"]["schemas"]["WebResearchRequest"]).lower()
+    request_schema = json.dumps(document["components"]["schemas"][schema]).lower()
     forbidden = {
         "image", "command", "pod", "namespace", "environment", "credential", "mount", "workspace", "tool"
     }

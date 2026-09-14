@@ -1,6 +1,6 @@
 # HearthAI Roadmap
 
-> **Web capability sequence:** Add isolated webfetch with a reusable result envelope and opportunistic inspection before LLM ingestion. Future research consumes webfetch rather than building a parallel fetch pipeline. See the [implementation plan](superpowers/plans/2026-09-12-isolated-webfetch.md). Research is not implemented in this change; Git remains the first substrate validation profile.
+> **Web capability sequence:** Add isolated webfetch with a reusable result envelope and opportunistic inspection before LLM ingestion. Future research consumes webfetch rather than building a parallel fetch pipeline. See the [implementation plan](superpowers/plans/2026-09-12-isolated-webfetch.md) and [runbook](runbooks/webfetch.md). The contracts and both worker stages are implemented in [`service/web_fetch/`](../service/web_fetch/); the substrate that runs them is not. Research is not implemented in this change; Git remains the first substrate validation profile.
 
 **Status:** authoritative capability roadmap<br>
 **Last updated:** 2026-09-09<br>

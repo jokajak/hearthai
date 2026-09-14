@@ -1,40 +1,610 @@
 {
   "openapi": "3.1.0",
-  "info": {"title": "HearthAI Web Research", "version": "0.3.0"},
+  "info": {
+    "title": "HearthAI Isolated Tools",
+    "version": "0.3.0"
+  },
   "paths": {
-    "/healthz": {"get": {"operationId": "health", "responses": {"200": {"description": "Process is healthy"}}}},
-    "/readyz": {"get": {"operationId": "ready", "responses": {"200": {"description": "Service can accept work"}}}},
+    "/healthz": {
+      "get": {
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Process is healthy"
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "ready",
+        "responses": {
+          "200": {
+            "description": "Service can accept work"
+          }
+        }
+      }
+    },
     "/v1/tools/web-research": {
       "post": {
         "operationId": "webResearch",
-        "parameters": [{
-          "name": "Idempotency-Key", "in": "header", "required": true,
-          "schema": {"type": "string", "format": "uuid"},
-          "description": "Adapter-generated identity for one logical invocation."
-        }],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebResearchRequest"}}}},
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Adapter-generated identity for one logical invocation."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebResearchRequest"
+              }
+            }
+          }
+        },
         "responses": {
-          "200": {"description": "Completed research", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebResearchResult"}}}},
-          "400": {"description": "Invalid request", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolFailure"}}}},
-          "503": {"description": "Temporarily unavailable", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolFailure"}}}},
-          "504": {"description": "Deadline exceeded", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ToolFailure"}}}}
+          "200": {
+            "description": "Completed research",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebResearchResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolFailure"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolFailure"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Deadline exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolFailure"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tools/web-fetch": {
+      "post": {
+        "operationId": "webFetch",
+        "summary": "Fetch one URL in an isolated environment and return inspected content or a fixed error.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Adapter-generated identity for one logical invocation."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebFetchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A completed run. The envelope's status says whether content was released; a rejected or failed run is a 200 carrying a fixed error, not an HTTP failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebFetchEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolFailure"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable, including when no valid destination policy or rule bundle is configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolFailure"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Deadline exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolFailure"
+                }
+              }
+            }
+          }
         }
       }
     }
   },
-  "components": {"schemas": {
-    "WebResearchRequest": {
-      "type": "object", "additionalProperties": false, "required": ["question"],
-      "properties": {
-        "question": {"type": "string", "minLength": 1, "maxLength": 8000},
-        "depth": {"type": "string", "enum": ["quick", "standard"], "default": "standard"},
-        "source_limit": {"type": "integer", "minimum": 1, "maximum": 12, "default": 8}
+  "components": {
+    "schemas": {
+      "WebResearchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "question"
+        ],
+        "properties": {
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000
+          },
+          "depth": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "standard"
+            ],
+            "default": "standard"
+          },
+          "source_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12,
+            "default": 8
+          }
+        }
+      },
+      "Evidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_id",
+          "support"
+        ],
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "support": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "Finding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "statement",
+          "evidence",
+          "confidence"
+        ],
+        "properties": {
+          "statement": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            }
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        }
+      },
+      "Source": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "url",
+          "title",
+          "retrieved_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "retrieved_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WebResearchResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "findings",
+          "sources",
+          "conflicts",
+          "limitations"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string",
+            "maxLength": 12000
+          },
+          "findings": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "$ref": "#/components/schemas/Source"
+            }
+          },
+          "conflicts": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "limitations": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          }
+        }
+      },
+      "ToolFailure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "invalid_request",
+              "temporarily_unavailable",
+              "deadline_exceeded",
+              "provider_unavailable",
+              "unsafe_source",
+              "incomplete_research",
+              "internal_error"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "WebFetchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url"
+        ],
+        "description": "A URL and an optional output format, and nothing else. Unknown fields are refused before anything is executed.",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 2048,
+            "description": "Absolute http(s) URL without userinfo, on port 80 or 443."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "markdown",
+              "text",
+              "html"
+            ],
+            "default": "markdown",
+            "description": "Deterministic conversion only. It never affects inspection policy."
+          }
+        }
+      },
+      "Inspection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "policy_id"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "no_match",
+              "match",
+              "failed",
+              "not_run"
+            ],
+            "description": "Only no_match permits a successful result."
+          },
+          "policy_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64,
+            "description": "A reference to the immutable policy bound to the run internally."
+          }
+        }
+      },
+      "EnvelopeError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "description": "The message is fixed per code. It never contains a remote body, title, header, URL, matched text, or worker exception.",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "content_rejected",
+              "inspection_failed",
+              "unsafe_source",
+              "unsupported_content",
+              "response_limit_exceeded",
+              "fetch_failed",
+              "deadline_exceeded"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      },
+      "WebFetchData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_id",
+          "final_url",
+          "http_status",
+          "content_type",
+          "retrieved_at",
+          "format",
+          "conversion_method",
+          "content"
+        ],
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "pattern": "^source-[0-9a-z]{1,32}$",
+            "description": "Run-scoped and opaque; not a path or a download handle."
+          },
+          "final_url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048
+          },
+          "http_status": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "content_type": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "retrieved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "markdown",
+              "text",
+              "html"
+            ]
+          },
+          "conversion_method": {
+            "type": "string",
+            "enum": [
+              "native",
+              "extracted",
+              "basic",
+              "passthrough",
+              "source"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 1048576
+          }
+        }
+      },
+      "WebFetchEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "envelope_version",
+          "tool",
+          "tool_version",
+          "status",
+          "trust",
+          "inspection",
+          "data",
+          "error"
+        ],
+        "description": "The reusable tool-result envelope, constructed by the trusted result gate after inspection completes. Source text resembling these fields stays inside data.content.",
+        "properties": {
+          "envelope_version": {
+            "const": 1
+          },
+          "tool": {
+            "const": "web_fetch"
+          },
+          "tool_version": {
+            "const": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "rejected",
+              "error"
+            ]
+          },
+          "trust": {
+            "type": "string",
+            "enum": [
+              "external_untrusted"
+            ],
+            "description": "Describes provenance. It grants no permission."
+          },
+          "inspection": {
+            "$ref": "#/components/schemas/Inspection"
+          },
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WebFetchData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EnvelopeError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "ok"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "data": {
+                  "type": "object"
+                },
+                "error": {
+                  "type": "null"
+                },
+                "inspection": {
+                  "properties": {
+                    "status": {
+                      "const": "no_match"
+                    },
+                    "policy_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "enum": [
+                    "rejected",
+                    "error"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "data": {
+                  "type": "null"
+                },
+                "error": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        ]
       }
-    },
-    "Evidence": {"type": "object", "additionalProperties": false, "required": ["source_id", "support"], "properties": {"source_id": {"type": "string", "maxLength": 64}, "support": {"type": "string", "maxLength": 2000}}},
-    "Finding": {"type": "object", "additionalProperties": false, "required": ["statement", "evidence", "confidence"], "properties": {"statement": {"type": "string", "maxLength": 4000}, "evidence": {"type": "array", "minItems": 1, "maxItems": 12, "items": {"$ref": "#/components/schemas/Evidence"}}, "confidence": {"type": "string", "enum": ["low", "medium", "high"]}}},
-    "Source": {"type": "object", "additionalProperties": false, "required": ["id", "url", "title", "retrieved_at"], "properties": {"id": {"type": "string", "maxLength": 64}, "url": {"type": "string", "format": "uri", "maxLength": 2048}, "title": {"type": "string", "maxLength": 500}, "retrieved_at": {"type": "string", "format": "date-time"}}},
-    "WebResearchResult": {"type": "object", "additionalProperties": false, "required": ["summary", "findings", "sources", "conflicts", "limitations"], "properties": {"summary": {"type": "string", "maxLength": 12000}, "findings": {"type": "array", "maxItems": 20, "items": {"$ref": "#/components/schemas/Finding"}}, "sources": {"type": "array", "maxItems": 12, "items": {"$ref": "#/components/schemas/Source"}}, "conflicts": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 2000}}, "limitations": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 2000}}}},
-    "ToolFailure": {"type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": {"code": {"type": "string", "enum": ["invalid_request", "temporarily_unavailable", "deadline_exceeded", "provider_unavailable", "unsafe_source", "incomplete_research", "internal_error"]}, "message": {"type": "string", "maxLength": 500}}}
-  }}
+    }
+  }
 }

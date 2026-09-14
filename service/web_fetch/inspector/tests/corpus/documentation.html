@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><title>Configuring the store</title><style>.nav{color:red}</style></head>
+<body>
+<header><a href="/">HearthAI</a></header>
+<nav><ul><li><a href="/a">Install</a></li><li><a href="/b">Configure</a></li><li><a href="/c">Deploy</a></li><li><a href="/d">Troubleshoot</a></li></ul></nav>
+<main>
+  <h1>Configuring the store</h1>
+  <p>The store keeps one writer. Set the claim before the first deploy.</p>
+  <h2>Options</h2>
+  <table>
+    <thead><tr><th>Key</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>persistence.enabled</td><td>Whether a volume is claimed.</td></tr>
+      <tr><td>persistence.existingClaim</td><td>An existing claim to reuse.</td></tr>
+    </tbody>
+  </table>
+  <h2>Example</h2>
+  <pre><code>helm upgrade hearthai ./deploy/charts/hearthai</code></pre>
+  <ul><li>Run it once.</li><li>Check the logs.</li></ul>
+  <p>See the <a href="/runbooks/restore">restore runbook</a> for recovery.</p>
+</main>
+<aside><p>Related: nothing</p></aside>
+<footer><p>Copyright</p></footer>
+<script>window.analytics = true;</script>
+</body></html>

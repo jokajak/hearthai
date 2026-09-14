@@ -13,5 +13,9 @@ class ResolvedWorkerProfile:
 
 
 class Executor(Protocol):
-    def start(self, run_id: str, profile: ResolvedWorkerProfile) -> None: ...
+    #: `request` is the full validated request, handed straight to the fixed
+    #: profile's pod. It is deliberately not routed through the run store: a
+    #: tool may have to keep a URL out of durable records while the worker
+    #: still needs it.
+    def start(self, run_id: str, profile: ResolvedWorkerProfile, request: object) -> None: ...
     def cancel(self, run_id: str) -> None: ...

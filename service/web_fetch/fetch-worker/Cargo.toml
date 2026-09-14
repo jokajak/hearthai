@@ -1,0 +1,26 @@
+[package]
+name = "hearthai-web-fetch-worker"
+description = "Bounded single-response HTTP(S) fetch stage for web_fetch:v1"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+hearthai-web-fetch-contracts.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+url.workspace = true
+sha2 = "0.11.0"
+ureq = { version = "3.4.1", default-features = false, features = ["rustls"], optional = true }
+
+[features]
+# The live connector is the only part of this crate that opens a socket. Tests
+# and the contract gates build without it, which keeps "did a test reach the
+# network?" a question the feature flag answers rather than a promise.
+default = ["network"]
+network = ["dep:ureq"]
+
+[lints]
+workspace = true

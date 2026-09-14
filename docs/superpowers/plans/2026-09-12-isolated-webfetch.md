@@ -1,7 +1,9 @@
 # Safer webfetch implementation plan
 
-**Status:** planning only. **Date:** 2026-09-12.
+**Status:** steps 1-3 implemented; steps 4-5 partial. **Date:** 2026-09-12.
 **Design:** [safer webfetch](../specs/2026-09-12-isolated-webfetch-design.md).
+**Code:** [`service/web_fetch/`](../../../service/web_fetch/) ·
+**Operations:** [runbook](../../runbooks/webfetch.md).
 
 Build a URL-in, content-or-error-out tool. No search, research orchestration,
 summarization, LLM processing, source selection, or new conversation policy system.
@@ -12,8 +14,31 @@ HTTP/conversion/scanning path. Research remains a later implementation step.
 The [design's harness comparison](../specs/2026-09-12-isolated-webfetch-design.md#existing-harness-behavior-informing-the-proposal)
 records inspected OpenCode and oh-my-pi behavior. Josh selected oh-my-pi-style
 native-first cleanup with local extraction fallback. Markdown is the default,
-with text/HTML options; no LLM is used for conversion. This is a documentation-only
-implementation plan, not a request to start runtime changes in this PR.
+with text/HTML options; no LLM is used for conversion.
+
+## Implementation status
+
+The wire contracts and both worker stages exist and are tested; what is missing
+is the substrate that runs them.
+
+**Done.** The Cargo workspace at `service/web_fetch/` with a pinned toolchain
+and lockfile: `contracts` (both wire contracts, plus language-neutral schemas
+and a shared fixture corpus), `fetch-worker` (destination policy, pinned
+connections, limits, artifact handoff) and `inspector` (decoding, YARA-X
+detection, the conversion chain, the result gate, and the shipped rule bundle).
+On the control-plane side, `web_fetch:v1` is registered, its OpenAPI route is
+published, and `service/ai_jobs/tests/test_web_fetch.py` replays the same
+fixture manifest the Rust crate does. CI gates format, lint, tests and a locked
+release build. The runbook documents limits, failures, rule maintenance,
+recorded false positives and residual risks.
+
+**Not done.** Everything that needs the unfinished substrate runtime: the fixed
+two-pod profile, artifact transfer between pods, the network policies that keep
+the inspector offline and the fetcher out of the cluster, worker images, chart
+packaging, tool registration in the deployment, the model-facing adapter, and
+the latency measurement that sets the final budget. Cancellation is still a
+protocol method with no executor behind it, and the audit record exists as a
+tested shape rather than a wired metrics path. Research remains out of scope.
 
 ## Language and package boundaries
 
@@ -34,20 +59,21 @@ run/result handling. If the existing Python control plane is retained, add its
 thin tool definition at `service/ai_jobs/src/ai_jobs/tools/web_fetch.py`; worker
 logic belongs in Rust.
 
-- [ ] Run shared JSON fixtures against Rust types and the current control-plane
+- [x] Run shared JSON fixtures against Rust types and the current control-plane
   adapter; verify identical validation of unknown fields, enums and size limits.
-- [ ] Define the reusable versioned envelope separately from the webfetch payload:
+- [x] Define the reusable versioned envelope separately from the webfetch payload:
   tool identity/version, status, trust, inspection, data and error.
-- [ ] Validate success/rejection/error combinations, unknown envelope versions, and
+- [x] Validate success/rejection/error combinations, unknown envelope versions, and
   null data on failure. Construct control fields in the trusted result gate.
-- [ ] Bind envelope provenance to internal run/artifact/policy records; source text
+- [x] Bind envelope provenance to internal run/artifact/policy records; source text
   resembling an envelope must not alter outer metadata or admission decisions.
-- [ ] Define the URL request with optional markdown/text/html format and exact success/error schemas.
-- [ ] Return content in the requested format with actual HTTP status and validated final URL.
-- [ ] Include the output format and a fixed conversion-method identifier in successful results.
-- [ ] Reject caller runtime settings, rules, credentials and bypass fields.
-- [ ] Reuse authentication, idempotency, cancellation and fixed profile selection.
-- [ ] Ensure request/result storage does not persist full URLs or response bodies.
+- [x] Define the URL request with optional markdown/text/html format and exact success/error schemas.
+- [x] Return content in the requested format with actual HTTP status and validated final URL.
+- [x] Include the output format and a fixed conversion-method identifier in successful results.
+- [x] Reject caller runtime settings, rules, credentials and bypass fields.
+- [x] Reuse authentication, idempotency and fixed profile selection. Cancellation
+  is unchanged: still a protocol method with no executor behind it.
+- [x] Ensure request/result storage does not persist full URLs or response bodies.
 
 Acceptance: invalid requests fail before execution; duplicate requests follow the
 existing idempotency contract; error messages cannot contain source content.
@@ -58,14 +84,15 @@ contract. It cannot accept raw payloads, forged status, or rejection as evidence
 
 Proposed Rust crate: `service/web_fetch/fetch-worker/`.
 
-- [ ] Implement fixed HTTP(S) GET and supported text media/encoding handling.
-- [ ] Validate and pin DNS results to the connection on every redirect.
-- [ ] Deny non-public and configured cluster destinations, including IPv6 edge cases.
-- [ ] Refuse readiness and admission when destination configuration is absent,
+- [x] Implement fixed HTTP(S) GET and supported text media/encoding handling.
+- [x] Validate and pin DNS results to the connection on every redirect.
+- [x] Deny non-public and configured cluster destinations, including IPv6 edge cases.
+  An optional allow-list narrows further; the layers only ever subtract.
+- [x] Refuse readiness and admission when destination configuration is absent,
   empty or malformed; validate cluster inputs and apply policy updates atomically.
-- [ ] Disable ambient proxies, cookies and credentials.
-- [ ] Enforce redirect, header, wire-byte, time and temporary-storage limits.
-- [ ] Produce an immutable run-scoped response artifact; never stream it to the caller.
+- [x] Disable ambient proxies, cookies and credentials.
+- [x] Enforce redirect, header, wire-byte, time and temporary-storage limits.
+- [x] Produce an immutable run-scoped response artifact; never stream it to the caller.
 
 Acceptance: HTTP fixtures and injected resolver/connector tests cover redirects,
 rebinding, mixed IP answers, metadata endpoints, slow/chunked bodies and oversized
@@ -78,32 +105,34 @@ pipeline, YARA-X adapter, `conversion.rs`, local converter adapters, versioned
 `rules/` bundle and fixtures. Keep these components independent from research
 orchestration.
 
-- [ ] Pin YARA-X and validate the supported rule subset.
-- [ ] Scan raw bytes, decoded body, bounded inspection-only normalized forms, and
+- [x] Pin YARA-X and validate the supported rule subset.
+- [x] Scan raw bytes, decoded body, bounded inspection-only normalized forms, and
   every final returned text field.
-- [ ] Pin the HTML-to-Markdown Rust crate and enable oh-my-pi-style
+- [x] Pin the HTML-to-Markdown Rust crate and enable oh-my-pi-style
   content cleanup; preserve headings, lists, code blocks, tables and useful links.
-- [ ] Qualify a Rust main-content extractor using the conversion corpus, then pin
+- [x] Qualify a Rust main-content extractor using the conversion corpus, then pin
   the local fallback chain: native conversion, qualified extraction, basic body
   conversion without aggressive cleanup. Trafilatura is not required. If no
   extractor improves results, record that evidence and use the two-stage chain.
-- [ ] Pass the same already-downloaded HTML to every converter. Do not use remote
+- [x] Pass the same already-downloaded HTML to every converter. Do not use remote
   readers, URL-fetching CLIs or automatic alternate-page requests.
-- [ ] Use deterministic quality checks, with fixtures for short pages, documentation
+- [x] Use deterministic quality checks, with fixtures for short pages, documentation
   and tables; avoid an article-only heuristic that discards valid content.
-- [ ] Support plain-text output and inert HTML-source mode; neither bypasses scans.
-- [ ] Scan before conversion and again afterward; do not summarize or select excerpts.
-- [ ] Inspect each candidate before evaluating quality. Only ordinary conversion
+- [x] Support plain-text output and inert HTML-source mode; neither bypasses scans.
+- [x] Scan before conversion and again afterward; do not summarize or select excerpts.
+- [x] Inspect each candidate before evaluating quality. Only ordinary conversion
   failure or poor extraction may try the next converter; detection or inspection
   failures terminate the response, without fallback.
-- [ ] Bound the whole fallback chain by one deadline and total resource budget.
-- [ ] Reject the whole response on any enabled rule match.
-- [ ] Withhold content on malformed input, timeout, crash, partial scan or missing rules.
-- [ ] Disable rule includes/modules; bound compilation, scanning and match counts.
-- [ ] Support validated immutable bundle updates and rollback.
-- [ ] Test the rule bundle against representative pages and example matching
+- [x] Bound the whole fallback chain by one deadline and total resource budget.
+- [x] Reject the whole response on any enabled rule match.
+- [x] Withhold content on malformed input, timeout, crash, partial scan or missing rules.
+- [x] Disable rule includes/modules; bound compilation, scanning and match counts.
+- [x] Support validated immutable bundle updates and rollback.
+- [x] Test the rule bundle against representative pages and example matching
   patterns, including technical documentation that quotes prompts. Record useful
   examples and false positives for tuning; no detection-rate target is required.
+  Documentation quoting a prompt is now let through by an explanatory-context
+  exception, which is evadable by design; the runbook and a named test say so.
 
 Acceptance: a match anywhere, including late in the body or hidden HTML, withholds
 the entire response, even if conversion removes the matching text. Passing content
@@ -135,14 +164,15 @@ Files: HearthAI chart, image/CI workflows, tool adapter, and
 `docs/runbooks/webfetch.md`.
 
 - [ ] Package Rust executable images, rules, fixed profiles, policies and tool registration.
-- [ ] Add Cargo format, lint, test and locked release-build gates to CI, including
-  supported container architectures and cross-language contract fixtures.
+- [x] Add Cargo format, lint, test and locked release-build gates to CI, plus the
+  cross-language contract fixtures. Only the one CI architecture so far; the
+  other supported container architectures wait on the image build.
 - [ ] Deliver the validated envelope as external tool data to the LLM. Keep human
   rendering separate and prevent automatic resource loads or native re-fetching.
 - [ ] Ensure this adapter does not bypass inspection through a native URL loader.
 - [ ] Measure pod startup plus fetch/inspection latency against the actual tool timeout.
 - [ ] Add bounded outcome/timing metrics without source content or URL labels.
-- [ ] Document rule maintenance, limits, failures and residual detection risks.
+- [x] Document rule maintenance, limits, failures and residual detection risks.
 
 Acceptance: an end-to-end tool call returns allowed content; a blocked response
 appears only as a fixed error. No rejected content appears in UI, logs, traces,

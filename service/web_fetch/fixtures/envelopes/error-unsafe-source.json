@@ -1,0 +1,10 @@
+{
+  "envelope_version": 1,
+  "tool": "web_fetch",
+  "tool_version": 1,
+  "status": "error",
+  "trust": "external_untrusted",
+  "inspection": {"status": "not_run", "policy_id": null},
+  "data": null,
+  "error": {"code": "unsafe_source", "message": "The destination is not an allowed public web address."}
+}

@@ -1,6 +1,6 @@
 # HearthAI Architecture
 
-> **Proposed safer fetch (2026-09-12):** The [webfetch design](superpowers/specs/2026-09-12-isolated-webfetch-design.md) and [plan](superpowers/plans/2026-09-12-isolated-webfetch.md) cover a URL-in, content-or-error-out tool with isolated inspection and whole-response rejection, including YARA rules. Planning only; no search, summarization, or research implementation.
+> **Safer fetch (2026-09-12):** The [webfetch design](superpowers/specs/2026-09-12-isolated-webfetch-design.md) and [plan](superpowers/plans/2026-09-12-isolated-webfetch.md) cover a URL-in, content-or-error-out tool with isolated inspection and whole-response rejection, including YARA rules. The wire contracts and both worker stages are implemented and tested in [`service/web_fetch/`](../service/web_fetch/); the two-pod substrate, images and chart packaging are not, so the capability is not yet deployed. See the [runbook](runbooks/webfetch.md). Still no search, summarization, or research implementation.
 
 **Status:** working architecture for the authoritative capability roadmap  
 **Roadmap:** [`ROADMAP.md`](ROADMAP.md)  

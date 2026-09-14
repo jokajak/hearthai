@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hearthai.invalid/schemas/tool-error.v1.schema.json",
+  "title": "ToolError",
+  "description": "Fixed code and message pair. The message is a constant chosen by the code; no remote body, header, URL, matched text, or worker exception may appear here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["code", "message"],
+  "properties": {
+    "code": {
+      "type": "string",
+      "enum": [
+        "content_rejected",
+        "inspection_failed",
+        "unsafe_source",
+        "unsupported_content",
+        "response_limit_exceeded",
+        "fetch_failed",
+        "deadline_exceeded"
+      ]
+    },
+    "message": {"type": "string", "minLength": 1, "maxLength": 200}
+  }
+}

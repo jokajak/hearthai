@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hearthai.invalid/schemas/tool-result-envelope.v1.schema.json",
+  "title": "ToolResultEnvelope",
+  "description": "Reusable versioned envelope constructed by the trusted result gate after inspection completes. web_fetch:v1 is its first user; a future consumer validates this envelope rather than inventing a second fetch response. Source text that resembles an envelope stays inside data.content and cannot set these fields.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["envelope_version", "tool", "tool_version", "status", "trust", "inspection", "data", "error"],
+  "properties": {
+    "envelope_version": {"const": 1},
+    "tool": {"type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$"},
+    "tool_version": {"type": "integer", "minimum": 1},
+    "status": {"type": "string", "enum": ["ok", "rejected", "error"]},
+    "trust": {"type": "string", "enum": ["external_untrusted"]},
+    "inspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "policy_id"],
+      "properties": {
+        "status": {"type": "string", "enum": ["no_match", "match", "failed", "not_run"]},
+        "policy_id": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z][a-z0-9-]{1,63}$",
+          "description": "Reference to the immutable policy bound to the run internally. Not a source-authored explanation."
+        }
+      }
+    },
+    "data": {"type": ["object", "null"]},
+    "error": {
+      "oneOf": [{"$ref": "tool-error.v1.schema.json"}, {"type": "null"}]
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "ok"}}},
+      "then": {
+        "properties": {
+          "data": {"type": "object"},
+          "error": {"type": "null"},
+          "inspection": {
+            "properties": {
+              "status": {"const": "no_match"},
+              "policy_id": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"enum": ["rejected", "error"]}}},
+      "then": {"properties": {"data": {"type": "null"}, "error": {"type": "object"}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "rejected"}}},
+      "then": {
+        "properties": {
+          "inspection": {"properties": {"status": {"const": "match"}}},
+          "error": {"properties": {"code": {"const": "content_rejected"}}}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"tool": {"const": "web_fetch"}, "status": {"const": "ok"}},
+        "required": ["tool", "status"]
+      },
+      "then": {"properties": {"data": {"$ref": "web-fetch-data.v1.schema.json"}}}
+    }
+  ]
+}

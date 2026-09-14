@@ -60,7 +60,7 @@ class RunService:
             tool_version=tool_version,
             idempotency_key=idempotency_key,
             request_digest=digest,
-            request=request,
+            durable_request=_durable(definition, request),
             grants=definition.grants_for(request),
             budgets=definition.budgets_for(request),
             policy_version=f"{tool_key}:v{tool_version}",
@@ -70,8 +70,18 @@ class RunService:
         stored, created = self.store.create_or_get(run)
         if not created:
             return stored, False
-        self.executor.start(stored.id, profile)
+        self.executor.start(stored.id, profile, request)
         return stored, True
+
+
+def _durable(definition: object, request: object) -> object:
+    """What the run store keeps.
+
+    The digest is computed from the full request either way, so idempotency is
+    unaffected by a tool choosing to persist less than it was sent.
+    """
+    narrow = getattr(definition, "durable_request", None)
+    return narrow(request) if narrow is not None else request
 
 
 def _validate_idempotency_key(value: str) -> None:

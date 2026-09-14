@@ -1,0 +1,172 @@
+{
+  "comment": "Shared cross-language fixture manifest. Every implementation of the web_fetch:v1 wire contract - the Rust contracts crate, the Python control-plane adapter, and any future Go rewrite - runs this same list and must agree on every verdict. 'valid' is the only assertion; 'reason' documents why the case exists.",
+  "requests": [
+    {
+      "file": "requests/valid-minimal.json",
+      "valid": true,
+      "reason": "URL alone; format defaults to markdown."
+    },
+    {
+      "file": "requests/valid-html-format.json",
+      "valid": true,
+      "reason": "Inert HTML source is a supported format."
+    },
+    {
+      "file": "requests/valid-text-format.json",
+      "valid": true,
+      "reason": "Plain HTTP and text output are supported."
+    },
+    {
+      "file": "requests/invalid-unknown-format.json",
+      "valid": false,
+      "reason": "Formats outside the enum are not silently coerced to the default."
+    },
+    {
+      "file": "requests/invalid-caller-headers.json",
+      "valid": false,
+      "reason": "The caller may not supply headers or credentials."
+    },
+    {
+      "file": "requests/invalid-infrastructure.json",
+      "valid": false,
+      "reason": "The caller may not supply images or commands."
+    },
+    {
+      "file": "requests/invalid-skip-scan.json",
+      "valid": false,
+      "reason": "There is no per-request inspection bypass."
+    },
+    {
+      "file": "requests/invalid-caller-rules.json",
+      "valid": false,
+      "reason": "The caller may not supply detection rules."
+    },
+    {
+      "file": "requests/invalid-userinfo.json",
+      "valid": false,
+      "reason": "URL userinfo carries credentials to the destination."
+    },
+    {
+      "file": "requests/invalid-scheme.json",
+      "valid": false,
+      "reason": "Only http and https are fetched."
+    },
+    {
+      "file": "requests/invalid-port.json",
+      "valid": false,
+      "reason": "v1 allows only ports 80 and 443."
+    },
+    {
+      "file": "requests/invalid-missing-url.json",
+      "valid": false,
+      "reason": "url is required."
+    }
+  ],
+  "envelopes": [
+    {
+      "file": "envelopes/ok-markdown.json",
+      "valid": true,
+      "reason": "The design's worked success example."
+    },
+    {
+      "file": "envelopes/ok-http-error-status.json",
+      "valid": true,
+      "reason": "A 4xx body that passed inspection is returned with its actual status."
+    },
+    {
+      "file": "envelopes/ok-content-imitating-envelope.json",
+      "valid": true,
+      "reason": "Source text shaped like an envelope stays inert inside data.content."
+    },
+    {
+      "file": "envelopes/rejected-content.json",
+      "valid": true,
+      "reason": "The design's worked rejection example."
+    },
+    {
+      "file": "envelopes/error-inspection-failed.json",
+      "valid": true,
+      "reason": "An incomplete scan withholds content."
+    },
+    {
+      "file": "envelopes/error-unsafe-source.json",
+      "valid": true,
+      "reason": "A destination refusal never runs inspection, so policy_id is null."
+    },
+    {
+      "file": "envelopes/error-response-limit-exceeded.json",
+      "valid": true,
+      "reason": "A limit failure returns no scanned prefix."
+    },
+    {
+      "file": "envelopes/invalid-ok-with-match.json",
+      "valid": false,
+      "reason": "Only a completed no_match inspection permits success."
+    },
+    {
+      "file": "envelopes/invalid-ok-without-policy.json",
+      "valid": false,
+      "reason": "An absent policy cannot produce success."
+    },
+    {
+      "file": "envelopes/invalid-ok-null-data.json",
+      "valid": false,
+      "reason": "ok requires typed non-null data."
+    },
+    {
+      "file": "envelopes/invalid-rejected-with-data.json",
+      "valid": false,
+      "reason": "A rejection must carry no body."
+    },
+    {
+      "file": "envelopes/invalid-error-message-carries-source.json",
+      "valid": false,
+      "reason": "Error messages are fixed; they cannot embed a URL or matched text."
+    },
+    {
+      "file": "envelopes/invalid-unknown-envelope-version.json",
+      "valid": false,
+      "reason": "Unsupported envelope versions are refused, not best-effort parsed."
+    },
+    {
+      "file": "envelopes/invalid-unknown-envelope-field.json",
+      "valid": false,
+      "reason": "Unknown envelope fields are refused, including ones that look like grants."
+    },
+    {
+      "file": "envelopes/invalid-unknown-trust.json",
+      "valid": false,
+      "reason": "trust is a fixed enum; fetched data cannot claim to be internal."
+    },
+    {
+      "file": "envelopes/invalid-data-unknown-field.json",
+      "valid": false,
+      "reason": "Unknown payload fields are refused, including download handles."
+    },
+    {
+      "file": "envelopes/invalid-data-final-url-userinfo.json",
+      "valid": false,
+      "reason": "final_url is validated like the request URL."
+    },
+    {
+      "file": "envelopes/invalid-data-unknown-conversion-method.json",
+      "valid": false,
+      "reason": "conversion_method is a fixed server-owned enum; no remote reader exists."
+    },
+    {
+      "file": "envelopes/invalid-error-without-code.json",
+      "valid": false,
+      "reason": "Every failure carries a code."
+    },
+    {
+      "file": "envelopes/invalid-error-unknown-code.json",
+      "valid": false,
+      "reason": "Codes come from the fixed table; no code invites a weaker retry."
+    },
+    {
+      "file": "envelopes/invalid-data-unsupported-media-type.json",
+      "valid": false,
+      "reason": "v1 processes a documented set of text media types; nothing else can be carried in a result."
+    }
+  ]
+}

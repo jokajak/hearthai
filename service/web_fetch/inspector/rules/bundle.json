@@ -1,0 +1,6 @@
+{
+  "policy_id": "web-content-v1",
+  "bundle_version": 1,
+  "rules": ["prompt-injection.yar"],
+  "notes": "A small reviewed bundle, not a comprehensive detector. A non-match means these rules did not fire. See docs/runbooks/webfetch.md for tuning and for the recorded false positives."
+}

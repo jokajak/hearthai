@@ -26,7 +26,12 @@ class Run:
     tool_version: int
     idempotency_key: str
     request_digest: str
-    request: object
+    #: What is safe to keep for the life of the run. A tool whose request
+    #: carries a URL or other content the deployment should not retain narrows
+    #: it here; the full validated request goes to the executor and nowhere
+    #: else. The digest above, not this field, is what the idempotency contract
+    #: compares.
+    durable_request: object
     grants: frozenset[str]
     budgets: BrokerBudgets
     policy_version: str
