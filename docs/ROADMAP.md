@@ -3,7 +3,7 @@
 > **Web capability sequence:** Add isolated webfetch with a reusable result envelope and opportunistic inspection before LLM ingestion. Future research consumes webfetch rather than building a parallel fetch pipeline. See the [implementation plan](superpowers/plans/2026-09-12-isolated-webfetch.md). Research is not implemented in this change; Git remains the first substrate validation profile.
 
 **Status:** authoritative capability roadmap<br>
-**Last updated:** 2026-09-09<br>
+**Last updated:** 2026-09-14<br>
 **Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)<br>
 **Design detail:** [`superpowers/specs/2026-08-30-capability-roadmap-design.md`](superpowers/specs/2026-08-30-capability-roadmap-design.md)
 
@@ -74,6 +74,62 @@ Repository authority requires **both** an explicit HearthAI authorization record
 repository in the GitHub App installation. Removing either blocks the next run. The `ai-jobs`
 control plane owns the durable run audit: request, selected profile, authorization decision,
 approval, pod identity, repository/ref, produced commits, checks, and GitHub actor.
+
+## Planned feature — Voice interaction
+
+**Status:** planned; not implemented or assigned a release. This feature supplements the
+current priority correction without changing its delivery order.
+
+### Purpose
+
+Let HearthAI talk to the user using voice, with spoken replies in the same conversation
+and the same personal context as text chat.
+
+### Initial scope — Spoken replies
+
+- Let the user enable spoken replies or play an individual response aloud.
+- Keep the written response available, including links, code, and other details that are
+  better read than spoken.
+- Provide stop/mute and voice selection controls where supported by the chosen integration.
+- Keep text chat usable when speech generation or playback fails.
+- Start with the existing OpenWebUI surface; assess its audio integration before deciding
+  whether HearthAI needs additional components.
+
+### Follow-on — Voice conversation
+
+Add user-initiated microphone input and speech recognition so a user can speak a request
+and hear the reply. Preserve conversation continuity when switching between voice and
+text. Support stopping playback to speak another turn; continuous real-time conversation,
+wake words, room devices, and phone calls need a later scope decision.
+
+### Integration boundaries
+
+Voice is another way to use the existing authenticated conversation. It keeps the same
+memory access, tool authorization, and action-approval behavior as text chat. Spoken replies
+do not enable unsolicited announcements; proactive speech remains separately opt-in.
+
+Speech providers may be self-hosted or hosted. Provider choice, routing, audio retention,
+and latency targets remain design decisions. Any new services and configuration belong in
+the HearthAI deployment package, with home-ops supplying environment inputs and Secrets.
+Any model-callable speech capability must follow the existing `ai-jobs` execution boundary;
+gateway audio handling should be designed explicitly rather than assumed to be a tool call.
+
+### Acceptance for spoken replies
+
+1. An authenticated user can request and hear a spoken reply in an existing conversation.
+2. The written reply remains available and the user can stop playback or disable speech.
+3. Speech failures leave the written answer accessible and allow continued text chat.
+4. Enabling voice preserves the session's existing memory and tool permissions.
+5. Required speech configuration ships with HearthAI rather than requiring separate
+   application wiring in home-ops.
+
+### Open design questions
+
+- Which OpenWebUI audio capabilities meet this scope, and what integration remains?
+- Which speech provider should be supported first, and should routing use LiteLLM or a
+  dedicated speech adapter?
+- Should playback read the full response or use a concise spoken rendering?
+- When should microphone input and lower-latency conversational audio enter the roadmap?
 
 ## Earlier roadmap detail — pending rewrite
 
