@@ -1,0 +1,83 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:recommended',
+    'docker:enableMajor',
+    ':disableRateLimiting',
+    ':dependencyDashboard',
+    ':semanticCommits',
+    ':automergePr',
+  ],
+  dependencyDashboard: true,
+  dependencyDashboardTitle: 'Renovate Dashboard 🤖',
+  // Why this repository needs Renovate at all: deploy/charts/hearthai pins the
+  // images for the whole household deployment — Open WebUI, LiteLLM, its
+  // postgres-init, meridian, the CNPG server. Those pins used to live in the
+  // consuming cluster's repo, where its Renovate bumped them. Packaging them
+  // here moved them out of that reach: a chart consumed by commit SHA or by a
+  // published version is opaque to the consumer's Renovate, so if nothing
+  // watches them here, nothing watches them anywhere and the deployment rots
+  // at whatever versions the import happened to capture.
+  rebaseWhen: 'conflicted',
+  // A release must be two days old before it can merge, so a just-published
+  // broken or compromised version cannot land unattended.
+  minimumReleaseAge: '2 days',
+  internalChecksFilter: 'none',
+  minimumReleaseAgeBehaviour: 'timestamp-optional',
+  commitMessageTopic: '{{depName}}',
+  commitMessageExtra: 'to {{newVersion}}',
+  customManagers: [
+    {
+      // The chart pins some images as a repository/tag pair, which the
+      // helm-values manager finds on its own, and others as a single
+      // "repo:tag" string, which it does not. meridian, postgres-init and the
+      // CNPG server are the second kind.
+      customType: 'regex',
+      description: 'Chart values that pin an image as one repo:tag string',
+      managerFilePatterns: [
+        '/^deploy/charts/.+/values\\.yaml$/',
+      ],
+      matchStrings: [
+        'image: (?<depName>[a-z0-9.\\-]+\\.[a-z]{2,}/[^:\\s]+):(?<currentValue>\\S+)',
+      ],
+      datasourceTemplate: 'docker',
+    },
+  ],
+  packageRules: [
+    {
+      // hearthmem's tag is set by the release workflow from the git tag —
+      // chart and app ship together — so it is not Renovate's to move. The
+      // hearthai chart carries the same pin for its bundled copy.
+      description: [
+        "Leave hearthmem's own image alone; the release workflow owns that pin",
+      ],
+      matchPackageNames: [
+        'ghcr.io/jokajak/hearthmem',
+      ],
+      enabled: false,
+    },
+    {
+      // Open WebUI keeps state in a database it migrates on startup, and a
+      // downgrade after a migration is not safe. Worth a human looking at the
+      // release notes rather than waking up to it already merged.
+      description: [
+        'Open WebUI upgrades are reviewed by a person, not automerged',
+      ],
+      matchPackageNames: [
+        'ghcr.io/open-webui/open-webui',
+      ],
+      automerge: false,
+    },
+    {
+      // Same reasoning: litellm-database applies its own Prisma migrations at
+      // startup, so rolling one back is not free.
+      description: [
+        'LiteLLM upgrades are reviewed by a person, not automerged',
+      ],
+      matchPackageNames: [
+        'ghcr.io/berriai/litellm-database',
+      ],
+      automerge: false,
+    },
+  ],
+}

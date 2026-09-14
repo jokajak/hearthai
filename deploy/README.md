@@ -127,6 +127,25 @@ performed for this import.
   Meridian is now deployed by this chart and the default routes are wired to its
   internal Service. Its credential volume must contain a valid Claude login.
 
+## Who keeps these pins current
+
+Renovate, here (`.github/renovate.json5`) — which is new, and load-bearing for the packaging.
+
+These images were previously pinned in the consuming cluster's own repository, where that
+cluster's Renovate bumped them. Packaging them into this chart moved them out of its reach: a
+chart consumed by commit SHA, or by a published chart version, is opaque to the consumer's
+Renovate. Nothing there can see `values.yaml`. So if nothing watches the pins here, nothing
+watches them anywhere, and a deployment quietly rots at whatever versions the import captured.
+
+The `helm-values` manager finds the `repository`/`tag` pairs (Open WebUI, LiteLLM); a small custom
+manager finds the ones written as a single `repo:tag` string (meridian, postgres-init, the CNPG
+server). Open WebUI and LiteLLM are not automerged — both migrate a database on startup, so a
+rollback is not free and a person should read the release notes. The bundled `hearthmem` tag is
+excluded: the release workflow sets it from the git tag, so chart and app ship together.
+
+⚠️ A config file is not enough — the Renovate GitHub App has to be installed on this repository.
+Until it is, these pins do not move.
+
 The packaging changes Kubernetes resource names and internal service discovery,
 adds a configuration rollout checksum, disables service-account token mounting,
 and uses `Recreate` so token-cache writers never overlap during upgrades. The
