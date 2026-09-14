@@ -4,7 +4,7 @@ kind: Ingress
 metadata:
   name: {{ include "hearthai.fullname" . }}-web
   labels:
-    {{- include "hearthai.labels" . | nindent 4 }}
+    {{- include "hearthai.web.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}

@@ -4,7 +4,7 @@ kind: Deployment
 metadata:
   name: {{ include "hearthai.fullname" . }}-litellm
   labels:
-    {{- include "hearthai.litellmSelector" . | nindent 4 }}
+    {{- include "hearthai.litellm.labels" . | nindent 4 }}
   {{- with .Values.litellm.deploymentAnnotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -16,11 +16,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "hearthai.litellmSelector" . | nindent 6 }}
+      {{- include "hearthai.litellm.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "hearthai.litellmSelector" . | nindent 8 }}
+        {{- include "hearthai.litellm.selectorLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/litellm-configmap.yaml") . | sha256sum }}
     spec:
@@ -104,10 +104,12 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "hearthai.fullname" . }}-litellm
+  labels:
+    {{- include "hearthai.litellm.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
   selector:
-    {{- include "hearthai.litellmSelector" . | nindent 4 }}
+    {{- include "hearthai.litellm.selectorLabels" . | nindent 4 }}
   ports:
     - name: http
       port: 4000
@@ -118,6 +120,8 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ include "hearthai.tokenClaim" . }}
+  labels:
+    {{- include "hearthai.litellm.labels" . | nindent 4 }}
   annotations:
     helm.sh/resource-policy: keep
 spec:
@@ -135,6 +139,8 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "hearthai.fullname" . }}-litellm
+  labels:
+    {{- include "hearthai.litellm.labels" . | nindent 4 }}
   {{- with .Values.litellm.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}

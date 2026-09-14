@@ -4,6 +4,8 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: {{ include "hearthai.fullname" . }}-postgres
+  labels:
+    {{- include "hearthai.postgres.labels" . | nindent 4 }}
   annotations:
     # Disabling bundled Postgres/uninstalling must not destroy the database.
     helm.sh/resource-policy: keep

@@ -3,11 +3,11 @@ kind: Service
 metadata:
   name: {{ include "hearthai.fullname" . }}-web
   labels:
-    {{- include "hearthai.labels" . | nindent 4 }}
+    {{- include "hearthai.web.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
   selector:
-    {{- include "hearthai.selectorLabels" . | nindent 4 }}
+    {{- include "hearthai.web.selectorLabels" . | nindent 4 }}
   ports:
     - name: http
       port: 8080

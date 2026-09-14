@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: {{ include "hearthai.fullname" . }}-web
   labels:
-    {{- include "hearthai.labels" . | nindent 4 }}
+    {{- include "hearthai.web.labels" . | nindent 4 }}
   {{- with .Values.openwebui.deploymentAnnotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -15,11 +15,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "hearthai.selectorLabels" . | nindent 6 }}
+      {{- include "hearthai.web.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "hearthai.selectorLabels" . | nindent 8 }}
+        {{- include "hearthai.web.selectorLabels" . | nindent 8 }}
       annotations:
         {{- with .Values.openwebui.podAnnotations }}
         {{- toYaml . | nindent 8 }}

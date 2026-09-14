@@ -3,7 +3,7 @@ kind: ConfigMap
 metadata:
   name: {{ include "hearthai.fullname" . }}-web
   labels:
-    {{- include "hearthai.labels" . | nindent 4 }}
+    {{- include "hearthai.web.labels" . | nindent 4 }}
 data:
   TZ: {{ .Values.timezone | quote }}
   WEBUI_URL: {{ .Values.url | quote }}
