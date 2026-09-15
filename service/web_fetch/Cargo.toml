@@ -1,0 +1,32 @@
+# HearthAI webfetch workspace.
+#
+# Three crates, matching the three trust boundaries in the design:
+#   contracts    - wire types shared by both stages and validated against the
+#                  language-neutral schemas/ and fixtures/ in this directory.
+#   fetch-worker - the only component with network egress. Writes an immutable
+#                  run-scoped artifact; it never converts, scans, or answers a caller.
+#   inspector    - offline. Reads the artifact, decodes, scans, converts, scans
+#                  again, and is the only component that may emit an envelope.
+[workspace]
+resolver = "3"
+members = ["contracts", "fetch-worker", "inspector"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+hearthai-webfetch-contracts = { path = "contracts" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+time = { version = "0.3.44", features = ["formatting", "parsing"] }
+url = "2.5.7"
+
+[profile.release]
+# The workers are short-lived pods; a panic must abort the stage rather than let
+# a half-scanned response continue on another thread.
+panic = "abort"
+strip = true

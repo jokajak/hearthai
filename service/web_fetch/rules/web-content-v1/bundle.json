@@ -1,0 +1,6 @@
+{
+  "policy_version": 1,
+  "policy_id": "web-content-v1",
+  "description": "Small opportunistic bundle for text fetched from the public web, aimed at content that addresses a model rather than a reader.",
+  "maintenance": "docs/runbooks/webfetch.md"
+}

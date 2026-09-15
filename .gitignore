@@ -8,3 +8,6 @@ data/
 
 # Built from the local chart dependency; never commit packaged binaries.
 deploy/charts/hearthai/charts/
+
+# Rust build output.
+target/

@@ -1,0 +1,23 @@
+[package]
+name = "hearthai-webfetch-inspector"
+description = "Offline inspection, conversion and result-gate stage for HearthAI webfetch"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "webfetch-inspect"
+path = "src/main.rs"
+
+[dependencies]
+hearthai-webfetch-contracts.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+time.workspace = true
+dom_smoothie = "0.18.1"
+encoding_rs = "0.8.36"
+flate2 = "1.1.5"
+html-to-markdown-rs = { version = "3.13.0", default-features = false }
+yara-x = { version = "1.20.0", default-features = false, features = ["constant-folding", "exact-atoms", "fast-regexp"] }
