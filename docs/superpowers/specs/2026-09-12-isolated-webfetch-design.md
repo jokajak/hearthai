@@ -1,6 +1,12 @@
 # Safer webfetch
 
-**Status:** proposed design; no runtime implementation.
+**Status:** implemented as two processes; not yet executed as isolated pods.
+The contracts, fetch stage, inspection stage, conversion chain and rule bundle
+live in [`service/web_fetch/`](../../../service/web_fetch); the `ai-jobs`
+execution boundaries described under [Execution](#execution) are still designed
+rather than deployed. [`docs/runbooks/webfetch.md`](../../runbooks/webfetch.md)
+records what is and is not wired up.
+
 **Conversion decision:** oh-my-pi-style local conversion selected by Josh; recorded for implementation.
 **Date:** 2026-09-12.
 **Plan:** [implementation steps](../plans/2026-09-12-isolated-webfetch.md).
@@ -286,6 +292,12 @@ The model cannot request a weaker rule set or ask for the rejected bytes.
 Do not automatically retry a rule match.
 
 ## Selected conversion approach
+
+**As implemented:** the chain is `html-to-markdown-rs` with standard
+preprocessing (the engine oh-my-pi uses), then `dom_smoothie` main-content
+extraction followed by plain conversion, then plain conversion of the whole body.
+The middle stage was kept rather than dropped: it produces usable output on the
+conversion fixtures where aggressive cleanup is right and the first stage is not.
 
 Adopt oh-my-pi's native-first HTML cleanup and local extraction fallback. Keep all
 conversion inside the offline inspection pod, working on the same downloaded

@@ -72,6 +72,13 @@ impl Inspection {
     pub fn not_run() -> Self {
         Self::new(InspectionStatus::NotRun, None)
     }
+
+    /// The inspection started and could not be completed. Pair this with
+    /// [`ErrorCode::InspectionFailed`]; `not_run` is not a valid companion for
+    /// that code, because it would claim the checks never began.
+    pub fn failed(policy_id: Option<String>) -> Self {
+        Self::new(InspectionStatus::Failed, policy_id)
+    }
 }
 
 /// Fixed failure codes. Every one maps to a constant message, so no code path

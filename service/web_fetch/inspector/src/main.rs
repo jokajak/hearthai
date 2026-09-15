@@ -39,9 +39,11 @@ fn main() -> ExitCode {
         Ok(bundle) => bundle,
         Err(error) => {
             eprintln!("rule bundle unusable: {error}");
+            // The inspection began and could not be completed: saying it never
+            // ran would be a different claim, and not a valid one for this code.
             let envelope =
-                WebFetchEnvelope::failure(ErrorCode::InspectionFailed, Inspection::not_run())
-                    .expect("inspection_failed with not_run is a valid envelope");
+                WebFetchEnvelope::failure(ErrorCode::InspectionFailed, Inspection::failed(None))
+                    .expect("inspection_failed with a failed inspection is a valid envelope");
             let _ = emit(&arguments, &envelope);
             return ExitCode::from(2);
         }
