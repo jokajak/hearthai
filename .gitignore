@@ -11,3 +11,7 @@ deploy/charts/hearthai/charts/
 
 # Rust build output.
 target/
+
+# uv writes these when a test run resolves pytest; the Python packages here have
+# no runtime dependencies, so there is nothing worth locking.
+uv.lock
