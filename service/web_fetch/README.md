@@ -24,7 +24,7 @@ request ─▶ webfetch-fetch ──artifact──▶ webfetch-inspect ─▶ en
   adapter both validate against the same manifest.
 
 ```sh
-cargo test --workspace      # 58 unit and contract tests
+cargo test --workspace      # 59 unit and contract tests
 ./scripts/end-to-end.sh     # both binaries against a local fixture server
 ```
 

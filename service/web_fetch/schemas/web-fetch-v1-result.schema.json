@@ -5,24 +5,81 @@
   "description": "The data member of a successful web_fetch envelope. Every string here except source_id and the enums came from the response and was inspected before release.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["source_id", "final_url", "http_status", "content_type", "retrieved_at", "format", "conversion_method", "content"],
+  "required": [
+    "source_id",
+    "final_url",
+    "http_status",
+    "content_type",
+    "retrieved_at",
+    "format",
+    "conversion_method",
+    "content"
+  ],
   "properties": {
-    "source_id": {"type": "string", "pattern": "^source-[0-9]{1,32}$", "description": "Run-scoped opaque identifier, not a filesystem or download handle."},
-    "final_url": {"type": "string", "format": "uri", "maxLength": 2048},
-    "http_status": {"type": "integer", "minimum": 100, "maximum": 599},
-    "content_type": {"type": "string", "maxLength": 200},
-    "retrieved_at": {"type": "string", "format": "date-time"},
-    "format": {"enum": ["markdown", "text", "html"]},
+    "source_id": {
+      "type": "string",
+      "pattern": "^source-[0-9]{1,32}$",
+      "description": "Run-scoped opaque identifier, not a filesystem or download handle."
+    },
+    "final_url": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2048
+    },
+    "http_status": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 599
+    },
+    "content_type": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "retrieved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "format": {
+      "enum": [
+        "markdown",
+        "text",
+        "html"
+      ]
+    },
     "conversion_method": {
       "description": "Which local converter produced the content. Fixed identifiers; a converter never returns a suggestion, a URL, or an instruction.",
-      "enum": ["native", "extracted", "basic", "passthrough", "source"]
+      "enum": [
+        "native",
+        "extracted",
+        "basic",
+        "passthrough",
+        "source"
+      ]
     },
-    "content": {"type": "string", "maxLength": 400000}
+    "content": {
+      "type": "string",
+      "maxLength": 1048576
+    }
   },
   "allOf": [
     {
-      "if": {"properties": {"format": {"const": "html"}}, "required": ["format"]},
-      "then": {"properties": {"conversion_method": {"const": "source"}}}
+      "if": {
+        "properties": {
+          "format": {
+            "const": "html"
+          }
+        },
+        "required": [
+          "format"
+        ]
+      },
+      "then": {
+        "properties": {
+          "conversion_method": {
+            "const": "source"
+          }
+        }
+      }
     }
   ]
 }

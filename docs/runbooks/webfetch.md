@@ -138,8 +138,8 @@ stays in force. With no valid bundle, the tool is unavailable.
 | Response headers | 32 KiB |
 | Wire body | 1 MiB |
 | Decoded body | 1 MiB, and at most 64x the wire bytes |
-| Total scan input | 4 MiB |
-| Returned content | 400,000 characters |
+| Total scan input | 8 MiB, across every required pass |
+| Returned content | 1,048,576 characters |
 | Network stage | 15 s |
 | Inspection stage | 5 s |
 | Whole run | 25 s |

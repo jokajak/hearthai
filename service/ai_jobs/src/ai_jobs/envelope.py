@@ -277,4 +277,7 @@ def _check(envelope: Envelope, payload: PayloadValidator | None) -> None:
 
 
 def _is_policy_id(value: str) -> bool:
-    return bool(value) and all(character.islower() or character.isdigit() or character in "-_." for character in value)
+    """Server-owned identifier, ASCII only - the same rule the Rust side applies."""
+    return bool(value) and all(
+        ("a" <= character <= "z") or ("0" <= character <= "9") or character in "-_." for character in value
+    )

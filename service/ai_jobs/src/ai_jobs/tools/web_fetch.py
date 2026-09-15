@@ -31,7 +31,7 @@ TOOL_VERSION = 1
 WORKER_PROFILE = "web-fetch-v1"
 
 MAX_URL_CHARS = 2_048
-MAX_CONTENT_CHARS = 400_000
+MAX_CONTENT_CHARS = 1_048_576
 MAX_CONTENT_TYPE_CHARS = 200
 #: Whole-run ceiling for both stages, inside the tool integration timeout.
 RUN_DEADLINE_SECONDS = 25

@@ -704,6 +704,37 @@ mod tests {
     }
 
     #[test]
+    fn a_page_near_the_body_limit_still_completes_every_pass() {
+        // Each required pass costs roughly the body's size, so a large page is
+        // where a too-small scan budget would show up - as an inspection
+        // failure on an ordinary document.
+        let filler = "<p>Ordinary paragraph of documentation text.</p>".repeat(18_000);
+        let page = format!("<html><body><h1>Large</h1>{filler}</body></html>");
+        assert!(
+            page.len() > 800 * 1024,
+            "fixture is not large enough: {}",
+            page.len()
+        );
+
+        let handoff = write_handoff("run-large", page.as_bytes(), "text/html", Format::Markdown);
+        let outcome = inspect(&handoff, "run-large");
+        assert_eq!(
+            outcome.envelope.status,
+            Status::Ok,
+            "{:?}",
+            outcome.audit.code
+        );
+        assert!(
+            outcome
+                .envelope
+                .data
+                .expect("content")
+                .content
+                .contains("# Large")
+        );
+    }
+
+    #[test]
     fn an_unsupported_media_type_never_reaches_conversion() {
         let handoff = write_handoff(
             "run-binary",

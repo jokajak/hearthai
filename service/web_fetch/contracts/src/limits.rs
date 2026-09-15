@@ -14,9 +14,19 @@ pub const MAX_DECODED_BYTES: usize = 1024 * 1024;
 /// decompression bomb rather than a large page.
 pub const MAX_DECODE_EXPANSION: usize = 64;
 /// Total bytes fed to the scanner across every required pass of one response.
-pub const MAX_SCAN_INPUT_BYTES: usize = 4 * 1024 * 1024;
+///
+/// The design proposed 4 MiB. That is below what the required passes actually
+/// cost: a 1 MiB body is scanned raw, decoded, entity-decoded and deobfuscated
+/// before conversion has produced anything, which is 4 MiB on its own. Dropping
+/// a pass to fit is the one thing this pipeline may not do, so the budget is
+/// twice the proposal and a page near the body limit still completes.
+pub const MAX_SCAN_INPUT_BYTES: usize = 8 * 1024 * 1024;
 /// Characters of converted content returned to the caller.
-pub const MAX_CONTENT_CHARS: usize = 400_000;
+///
+/// Held at the decoded-body limit so that the body limit is the one that
+/// actually decides what fits: a page inside the decoded limit should not be
+/// refused for a second, smaller ceiling it was never measured against.
+pub const MAX_CONTENT_CHARS: usize = 1024 * 1024;
 /// Wall-clock seconds for the whole network stage.
 pub const FETCH_DEADLINE_SECONDS: u64 = 15;
 /// Wall-clock seconds for decode, scan and the whole conversion fallback chain.
