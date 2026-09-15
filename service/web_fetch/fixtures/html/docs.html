@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head><title>Deploying HearthAI</title><style>.nav { display: flex }</style></head>
+  <body>
+    <nav class="nav"><a href="/">Home</a> <a href="/docs">Docs</a> <a href="/support">Support</a></nav>
+    <main>
+      <h1>Deploying HearthAI</h1>
+      <p>Install the chart, then confirm every pod is ready before sending traffic.</p>
+      <h2>Values</h2>
+      <table>
+        <thead><tr><th>Key</th><th>Default</th></tr></thead>
+        <tbody>
+          <tr><td>webfetch.enabled</td><td>false</td></tr>
+          <tr><td>webfetch.deadlineSeconds</td><td>15</td></tr>
+        </tbody>
+      </table>
+      <h2>Commands</h2>
+      <pre><code class="language-bash">helm upgrade --install hearthai ./deploy/charts/hearthai</code></pre>
+      <ul><li>Check the release notes.</li><li>Confirm the rule bundle is mounted.</li></ul>
+      <p>See <a href="https://example.com/manual">the manual</a> for the full reference.</p>
+    </main>
+    <footer><p>Copyright example.com</p></footer>
+  </body>
+</html>

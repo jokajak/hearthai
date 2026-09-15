@@ -53,6 +53,10 @@ class RunService:
         request = definition.validate_request(payload)
         canonical = json.dumps(request.to_dict(), sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(canonical.encode()).hexdigest()
+        # The full request stays in memory for the run; what the store keeps is
+        # whatever the tool says is safe to keep. For webfetch that is a URL
+        # digest, so a durable record never holds the address that was fetched.
+        stored_request = definition.storage_view(request)
         run = Run(
             id=self.id_factory(),
             caller_id=caller_id,
@@ -60,7 +64,7 @@ class RunService:
             tool_version=tool_version,
             idempotency_key=idempotency_key,
             request_digest=digest,
-            request=request,
+            request=stored_request,
             grants=definition.grants_for(request),
             budgets=definition.budgets_for(request),
             policy_version=f"{tool_key}:v{tool_version}",

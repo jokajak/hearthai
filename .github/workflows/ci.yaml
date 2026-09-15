@@ -48,6 +48,101 @@ jobs:
         working-directory: service/web_research_worker
         run: uv run --extra test python -m pytest -q
 
+  webfetch:
+    name: webfetch workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain
+        # rust-toolchain.toml pins the version; this just materialises it.
+        working-directory: service/web_fetch
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: service/web_fetch
+      - name: Format
+        working-directory: service/web_fetch
+        run: cargo fmt --all --check
+      - name: Lint
+        working-directory: service/web_fetch
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        # --locked: the committed dependency graph is what gets tested.
+        working-directory: service/web_fetch
+        run: cargo test --workspace --locked
+      - name: Both stages, as separate processes, against a fixture server
+        working-directory: service/web_fetch
+        run: ./scripts/end-to-end.sh
+
+  webfetch-images:
+    name: build webfetch images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the fetch stage (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./service/web_fetch
+          target: fetch-worker
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: webfetch-fetch:ci
+          cache-from: type=gha,scope=webfetch
+          cache-to: type=gha,mode=max,scope=webfetch
+      - name: Build the inspection stage (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./service/web_fetch
+          target: inspector
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: webfetch-inspect:ci
+          cache-from: type=gha,scope=webfetch
+          cache-to: type=gha,mode=max,scope=webfetch
+      - name: Both images run non-root and fail closed
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          chmod 777 "$work"
+          echo '{"url":"https://example.com/"}' > "$work/request.json"
+          head -c 32 /dev/urandom > "$work/handoff.key"
+          chmod 644 "$work/handoff.key"
+
+          echo "--- neither image runs as root ---"
+          for image in webfetch-fetch:ci webfetch-inspect:ci; do
+            user="$(docker inspect --format '{{.Config.User}}' "$image")"
+            test "$user" = "nonroot:nonroot" || { echo "$image runs as '$user'"; exit 1; }
+          done
+
+          echo "--- a missing destination policy leaves the capability unavailable ---"
+          status=0
+          docker run --rm -v "$work:/run" webfetch-fetch:ci \
+            --run-id run-ci --request /run/request.json --policy /run/absent.json \
+            --artifact-dir /run --handoff-key /run/handoff.key || status=$?
+          test "$status" = "2"
+          test ! -f "$work/artifact.json"
+
+          echo "--- with no usable rule bundle the inspector returns no content ---"
+          status=0
+          docker run --rm -v "$work:/run" webfetch-inspect:ci \
+            --run-id run-ci --artifact-dir /run --rules /run/absent \
+            --handoff-key /run/handoff.key --out /run/envelope.json || status=$?
+          test "$status" = "2"
+          python3 -c "import json,sys; e=json.load(open(sys.argv[1])); assert e['status']=='error' and e['error']['code']=='inspection_failed' and e['data'] is None, e; print('fails closed with no content')" "$work/envelope.json"
+
+          echo "--- the bundle shipped in the image is the one it compiles ---"
+          status=0
+          docker run --rm -v "$work:/run" webfetch-inspect:ci \
+            --run-id run-ci --artifact-dir /run --rules /opt/webfetch/rules/web-content-v1 \
+            --handoff-key /run/handoff.key --out /run/envelope.json || status=$?
+          # No handoff for this run, so the result is an error - but reaching it
+          # means the shipped bundle compiled.
+          test "$status" = "1"
+          python3 -c "import json,sys; e=json.load(open(sys.argv[1])); assert e['error']['code']=='internal_error' and e['data'] is None, e; print('shipped bundle compiles')" "$work/envelope.json"
+
   image:
     name: build image
     runs-on: ubuntu-latest

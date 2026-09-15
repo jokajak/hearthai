@@ -1,0 +1,16 @@
+{
+  "envelope_version": 1,
+  "tool": "web_fetch",
+  "tool_version": 1,
+  "status": "error",
+  "trust": "external_untrusted",
+  "inspection": {
+    "status": "failed",
+    "policy_id": "web-content-v1"
+  },
+  "data": null,
+  "error": {
+    "code": "inspection_failed",
+    "message": "Response inspection did not complete; no content was returned."
+  }
+}

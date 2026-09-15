@@ -97,22 +97,27 @@ def test_failure_rejects_internal_details():
 
 def test_public_openapi_has_only_specific_tool_routes_and_idempotency_header():
     document = json.loads(OPENAPI.read_text())
-    assert set(document["paths"]) == {"/healthz", "/readyz", "/v1/tools/web-research"}
-    operation = document["paths"]["/v1/tools/web-research"]["post"]
-    assert operation["operationId"] == "webResearch"
-    assert operation["parameters"] == [{
+    assert set(document["paths"]) == {"/healthz", "/readyz", "/v1/tools/web-research", "/v1/tools/web-fetch"}
+    idempotency = {
         "name": "Idempotency-Key",
         "in": "header",
         "required": True,
         "schema": {"type": "string", "format": "uuid"},
         "description": "Adapter-generated identity for one logical invocation.",
-    }]
+    }
+    operation = document["paths"]["/v1/tools/web-research"]["post"]
+    assert operation["operationId"] == "webResearch"
+    assert operation["parameters"] == [idempotency]
+    fetch = document["paths"]["/v1/tools/web-fetch"]["post"]
+    assert fetch["operationId"] == "webFetch"
+    assert fetch["parameters"] == [idempotency]
 
 
-def test_public_request_schema_has_no_runtime_controls():
+def test_public_request_schemas_have_no_runtime_controls():
     document = json.loads(OPENAPI.read_text())
-    request_schema = json.dumps(document["components"]["schemas"]["WebResearchRequest"]).lower()
     forbidden = {
         "image", "command", "pod", "namespace", "environment", "credential", "mount", "workspace", "tool"
     }
-    assert not {term for term in forbidden if term in request_schema}
+    for name in ("WebResearchRequest", "WebFetchRequest"):
+        request_schema = json.dumps(document["components"]["schemas"][name]).lower()
+        assert not {term for term in forbidden if term in request_schema}, name
