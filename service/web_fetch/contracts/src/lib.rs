@@ -16,6 +16,7 @@
 
 pub mod artifact;
 pub mod envelope;
+pub mod handoff;
 pub mod limits;
 pub mod media;
 pub mod stage;

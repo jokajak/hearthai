@@ -11,6 +11,7 @@ name = "webfetch-inspect"
 path = "src/main.rs"
 
 [dependencies]
+clap.workspace = true
 hearthai-webfetch-contracts.workspace = true
 serde.workspace = true
 serde_json.workspace = true

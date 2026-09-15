@@ -49,49 +49,82 @@ impl SourceSignals {
     }
 }
 
+/// One way of turning the downloaded HTML into returnable text.
+///
+/// Each converter is a strategy with a fixed identifier and no state; adding one
+/// means writing an implementation and putting it in [`CHAIN`], not extending a
+/// switch in two places.
+pub trait Converter: Sync {
+    /// What a result built from this converter reports.
+    fn method(&self) -> ConversionMethod;
+
+    /// Convert, or say it could not. `None` is an ordinary conversion failure,
+    /// which is the only thing that may lead to trying the next converter.
+    fn convert(&self, source: &str, format: Format) -> Option<Candidate>;
+}
+
+/// Native conversion with content cleanup: navigation, forms, script and style
+/// boilerplate out; headings, lists, code, tables and links kept.
+pub struct NativeCleanup;
+
+impl Converter for NativeCleanup {
+    fn method(&self) -> ConversionMethod {
+        ConversionMethod::Native
+    }
+
+    fn convert(&self, source: &str, format: Format) -> Option<Candidate> {
+        candidate(
+            self,
+            to_markdown(source, format, PreprocessingPreset::Standard, true)?,
+        )
+    }
+}
+
+/// Main-content extraction on the same HTML, then plain conversion of what it
+/// selected.
+pub struct MainContentExtraction;
+
+impl Converter for MainContentExtraction {
+    fn method(&self) -> ConversionMethod {
+        ConversionMethod::Extracted
+    }
+
+    fn convert(&self, source: &str, format: Format) -> Option<Candidate> {
+        let article = extract_main_content(source)?;
+        candidate(
+            self,
+            to_markdown(&article, format, PreprocessingPreset::Minimal, false)?,
+        )
+    }
+}
+
+/// Conversion without aggressive boilerplate removal, for pages an article
+/// extractor would damage - short pages, reference tables, indexes.
+pub struct PlainConversion;
+
+impl Converter for PlainConversion {
+    fn method(&self) -> ConversionMethod {
+        ConversionMethod::Basic
+    }
+
+    fn convert(&self, source: &str, format: Format) -> Option<Candidate> {
+        candidate(
+            self,
+            to_markdown(source, format, PreprocessingPreset::Minimal, false)?,
+        )
+    }
+}
+
+fn candidate(converter: &dyn Converter, content: String) -> Option<Candidate> {
+    Some(Candidate {
+        content,
+        method: converter.method(),
+    })
+}
+
 /// The fixed fallback order. It is operator-owned: a caller picks the output
 /// format and nothing else.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Converter {
-    /// Native conversion with content cleanup: navigation, forms, script and
-    /// style boilerplate out, headings, lists, code, tables and links kept.
-    Native,
-    /// Main-content extraction on the same HTML, then plain conversion.
-    Extracted,
-    /// Conversion without aggressive boilerplate removal, for pages an article
-    /// extractor would damage - short pages, reference tables, indexes.
-    Basic,
-}
-
-/// The chain, in order. Every step is local and works on the same bytes.
-pub const CHAIN: [Converter; 3] = [Converter::Native, Converter::Extracted, Converter::Basic];
-
-impl Converter {
-    pub fn method(self) -> ConversionMethod {
-        match self {
-            Self::Native => ConversionMethod::Native,
-            Self::Extracted => ConversionMethod::Extracted,
-            Self::Basic => ConversionMethod::Basic,
-        }
-    }
-
-    /// Run this converter. `None` is an ordinary conversion failure, which is
-    /// the only thing that may lead to trying the next one.
-    pub fn run(self, html: &str, format: Format) -> Option<Candidate> {
-        let content = match self {
-            Self::Native => to_markdown(html, format, PreprocessingPreset::Standard, true)?,
-            Self::Extracted => {
-                let article = extract_main_content(html)?;
-                to_markdown(&article, format, PreprocessingPreset::Minimal, false)?
-            }
-            Self::Basic => to_markdown(html, format, PreprocessingPreset::Minimal, false)?,
-        };
-        Some(Candidate {
-            content,
-            method: self.method(),
-        })
-    }
-}
+pub const CHAIN: [&dyn Converter; 3] = [&NativeCleanup, &MainContentExtraction, &PlainConversion];
 
 fn to_markdown(
     html: &str,
@@ -209,8 +242,8 @@ mod tests {
 
     #[test]
     fn native_conversion_keeps_the_structure_of_a_documentation_page() {
-        let candidate = Converter::Native
-            .run(DOCS, Format::Markdown)
+        let candidate = NativeCleanup
+            .convert(DOCS, Format::Markdown)
             .expect("converted");
         let content = &candidate.content;
         assert!(
@@ -241,8 +274,8 @@ mod tests {
 
     #[test]
     fn a_short_page_is_not_poor_quality_merely_for_being_short() {
-        let candidate = Converter::Native
-            .run(SHORT, Format::Markdown)
+        let candidate = NativeCleanup
+            .convert(SHORT, Format::Markdown)
             .expect("converted");
         assert!(candidate.content.contains("All systems normal"));
         assert_eq!(
@@ -279,8 +312,8 @@ mod tests {
 
     #[test]
     fn plain_text_output_carries_the_text_without_markup() {
-        let candidate = Converter::Native
-            .run(DOCS, Format::Text)
+        let candidate = NativeCleanup
+            .convert(DOCS, Format::Text)
             .expect("converted");
         assert!(candidate.content.contains("Set the values below"));
         assert!(!candidate.content.contains("# Configuration"));
@@ -299,22 +332,30 @@ mod tests {
         <p>A second paragraph, also of a reasonable length, so that scoring has something to weigh
         against the navigation links in the header of this page.</p></article></body></html>"#;
         for converter in CHAIN {
+            let method = converter.method();
             let candidate = converter
-                .run(article, Format::Markdown)
-                .unwrap_or_else(|| panic!("{converter:?} produced nothing"));
+                .convert(article, Format::Markdown)
+                .unwrap_or_else(|| panic!("{method:?} produced nothing"));
             assert!(
                 candidate.content.contains("main-content extractor"),
-                "{converter:?} lost the body:\n{}",
+                "{method:?} lost the body:\n{}",
                 candidate.content
             );
-            assert_eq!(candidate.method, converter.method());
+            assert_eq!(candidate.method, method);
         }
     }
 
     #[test]
-    fn conversion_never_reports_a_method_it_did_not_use() {
-        assert_eq!(Converter::Native.method(), ConversionMethod::Native);
-        assert_eq!(Converter::Extracted.method(), ConversionMethod::Extracted);
-        assert_eq!(Converter::Basic.method(), ConversionMethod::Basic);
+    fn the_chain_is_native_cleanup_then_extraction_then_plain_conversion() {
+        let methods: Vec<ConversionMethod> =
+            CHAIN.iter().map(|converter| converter.method()).collect();
+        assert_eq!(
+            methods,
+            vec![
+                ConversionMethod::Native,
+                ConversionMethod::Extracted,
+                ConversionMethod::Basic
+            ]
+        );
     }
 }

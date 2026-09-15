@@ -18,10 +18,10 @@ use hearthai_webfetch_contracts::limits::{
     FETCH_DEADLINE_SECONDS, MAX_HEADER_BYTES, MAX_REDIRECTS, MAX_WIRE_BYTES,
 };
 use hearthai_webfetch_contracts::media::{MediaType, is_supported_content_encoding};
-use hearthai_webfetch_contracts::web_fetch::{WebFetchRequest, check_destination};
+use hearthai_webfetch_contracts::web_fetch::WebFetchRequest;
 
 use crate::policy::DestinationPolicy;
-use crate::resolve::{HostResolver, PinnedResolver, resolve_and_validate};
+use crate::resolve::{HostResolver, ValidatedDestination};
 
 /// Identifies the fetcher to servers. Fixed: a caller cannot influence what this
 /// deployment says about itself.
@@ -76,19 +76,14 @@ impl Fetcher {
                 .filter(|left| !left.is_zero())
                 .ok_or(ErrorCode::DeadlineExceeded)?;
 
-            // Re-checked on every hop, not only on what the caller asked for.
-            check_destination(&current).map_err(|_| ErrorCode::UnsafeSource)?;
-            if !current
-                .port_or_known_default()
-                .is_some_and(|port| self.policy.permits_port(port))
-            {
-                return Err(ErrorCode::UnsafeSource);
-            }
-            let addresses = resolve_and_validate(self.resolver.as_ref(), &self.policy, &current)?;
+            // Re-validated on every hop, not only on what the caller asked for:
+            // scheme, port, resolution and every answer, before a connection.
+            let destination =
+                ValidatedDestination::resolve(self.resolver.as_ref(), &self.policy, &current)?;
 
-            let agent = build_agent(addresses, remaining);
+            let agent = build_agent(&destination, remaining);
             let response = agent
-                .get(current.as_str())
+                .get(destination.url().as_str())
                 .header("user-agent", USER_AGENT)
                 .header("accept", ACCEPT)
                 .header("accept-encoding", ACCEPT_ENCODING)
@@ -181,7 +176,8 @@ impl Fetcher {
     }
 }
 
-fn build_agent(addresses: Vec<std::net::SocketAddr>, remaining: Duration) -> Agent {
+/// An agent that can reach this destination and nothing else.
+fn build_agent(destination: &ValidatedDestination, remaining: Duration) -> Agent {
     let config = Config::builder()
         // Redirects are followed by the caller of this function, one validated
         // hop at a time.
@@ -198,7 +194,7 @@ fn build_agent(addresses: Vec<std::net::SocketAddr>, remaining: Duration) -> Age
     Agent::with_parts(
         config,
         DefaultConnector::new(),
-        PinnedResolver::new(addresses),
+        destination.pinned_resolver(),
     )
 }
 

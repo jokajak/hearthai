@@ -105,6 +105,13 @@ account token, read-only roots, bounded temporary storage, CPU/memory limits, an
 deadlines. Temporary artifact transfer, if networked, is the only narrowly scoped
 inspection-stage network exception.
 
+**As implemented:** the two binaries seal the handoff themselves, with an HMAC
+over the stage outcome, the artifact description and the body digest, keyed per
+run. That binds the artifact to its run against a writer who holds no key, which
+a digest alone cannot do. It is not a substitute for the substrate making the
+directory immutable, and it does not constrain a compromised fetch stage, which
+holds the key; see the runbook.
+
 The substrate transfers a run-scoped immutable artifact after the fetcher exits.
 Bind its digest and length to the run; reject changed artifacts, cross-run access,
 late results, and replay. Do not share a writable volume with a live fetcher.

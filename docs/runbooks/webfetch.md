@@ -17,12 +17,40 @@ content stays external data.
 
 | Stage | Binary | Network | Produces |
 |---|---|---|---|
-| Fetch | `webfetch-fetch` | Public web only, policy-checked on every hop | An immutable run-scoped artifact |
+| Fetch | `webfetch-fetch` | Public web only, policy-checked on every hop | One sealed run handoff |
 | Inspection | `webfetch-inspect` | None | Exactly one validated envelope |
 
 They are separate processes, and in a deployment separate pods, so a parser or
 scanner bug does not inherit the fetcher's egress. The inspection stage is the
 only component that can release content.
+
+## The handoff and its seal
+
+The fetch stage writes one directory - `stage.json`, `artifact.json`, `body.bin`
+and `handoff.mac` - and the inspection stage reads it. The seal is an HMAC over
+the stage outcome, the artifact description and the body digest, keyed by a
+run-scoped key both stages are given in a file outside that directory.
+
+What the seal covers:
+
+* Swapping the body **and** rewriting the digest that describes it. A digest
+  alone does not catch that, because whoever replaces one can replace the other.
+* Turning a recorded failure into a success by writing an artifact next to it.
+* Moving another run's handoff into this one, or replaying an earlier one.
+
+What it does not cover, and must not be described as covering:
+
+* **A compromised fetch stage.** It legitimately holds the key, so anything it
+  can seal, it can seal dishonestly. The defence against that is the stage split
+  and the fetcher's own limits, not this.
+* **Anyone who can read the key.** Mount it so that only the two stages of one
+  run can, and give each run a fresh one.
+* **The handoff being writable at all.** The executor should make the directory
+  read-only to the inspection stage; the seal is what the two binaries can prove
+  on their own, not a replacement for that boundary.
+
+Generate a key with `head -c 32 /dev/urandom > run.key`. Anything shorter than
+32 bytes is refused as a misconfiguration rather than accepted as a weaker mode.
 
 ## Running it locally
 
@@ -37,14 +65,19 @@ One request by hand:
 ```bash
 work=$(mktemp -d)
 echo '{"url":"https://example.com/","format":"markdown"}' > "$work/request.json"
+head -c 32 /dev/urandom > "$work/handoff.key"   # the controller supplies this per run
 
 cargo run --bin webfetch-fetch -- \
   --run-id run-1 --request "$work/request.json" \
-  --policy deploy-destination-policy.example.json --artifact-dir "$work"
+  --policy deploy-destination-policy.example.json \
+  --artifact-dir "$work" --handoff-key "$work/handoff.key"
 
 cargo run --bin webfetch-inspect -- \
-  --run-id run-1 --artifact-dir "$work" --rules rules/web-content-v1
+  --run-id run-1 --artifact-dir "$work" --rules rules/web-content-v1 \
+  --handoff-key "$work/handoff.key"
 ```
+
+Both binaries take `--help`.
 
 The fetch stage exits `0` on success, `1` when it recorded a public failure code
 for the inspection stage to report, and `2` when it could not run at all
@@ -176,7 +209,7 @@ digest instead of the request.
 | `response_limit_exceeded` | A header, byte, expansion or output limit | None |
 | `fetch_failed` | Network failure | None |
 | `deadline_exceeded` | The run's deadline elapsed | None |
-| `internal_error` | Artifact binding failed, or a result did not satisfy the contract | None |
+| `internal_error` | The handoff did not verify, or a result did not satisfy the contract | None |
 
 Each code carries one fixed message. That is enforced on both sides of the wire:
 an envelope whose message is anything else does not validate.
@@ -203,7 +236,8 @@ are:
   and admission layer; there is no executor that creates pods. The fixed
   `web-fetch-v1` profile - two sequential ephemeral pods, no service account
   token, read-only root, an inspection pod with egress denied, artifact handoff
-  and cleanup - is designed but not deployed.
+  and cleanup - is designed but not deployed. Nothing mints the per-run handoff
+  key either, so today it is whatever the caller of the two binaries supplies.
 * **No chart wiring.** No HearthAI chart template renders the profile, the rule
   bundle, the destination policy or the tool registration, because there is
   nothing to register with yet.
