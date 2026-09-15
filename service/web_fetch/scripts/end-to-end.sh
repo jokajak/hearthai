@@ -15,14 +15,31 @@ cargo build --manifest-path "$here/Cargo.toml" --quiet
 fetch="$here/target/debug/webfetch-fetch"
 inspect="$here/target/debug/webfetch-inspect"
 
-python3 -m http.server --bind 127.0.0.1 --directory "$here/fixtures/html" 0 >"$work/server.log" 2>&1 &
+# Pick the port ourselves rather than reading it back out of the server's
+# output: that output is block-buffered when redirected, so parsing it is a race
+# the CI runner loses.
+port="$(python3 -c 'import socket
+sock = socket.socket()
+sock.bind(("127.0.0.1", 0))
+print(sock.getsockname()[1])
+sock.close()')"
+python3 -m http.server --bind 127.0.0.1 --directory "$here/fixtures/html" "$port" >"$work/server.log" 2>&1 &
 server_pid=$!
-for _ in $(seq 1 50); do
-  port="$(sed -n 's/.*port \([0-9]\+\).*/\1/p' "$work/server.log" | head -1)"
-  [[ -n "$port" ]] && break
+ready=""
+for _ in $(seq 1 100); do
+  if ! kill -0 "$server_pid" 2>/dev/null; then
+    echo "fixture server exited"; cat "$work/server.log"; exit 1
+  fi
+  if python3 -c 'import socket, sys
+sock = socket.socket()
+sock.settimeout(0.5)
+sys.exit(sock.connect_ex(("127.0.0.1", int(sys.argv[1]))))' "$port"; then
+    ready=yes
+    break
+  fi
   sleep 0.1
 done
-[[ -n "${port:-}" ]] || { echo "fixture server did not start"; cat "$work/server.log"; exit 1; }
+[[ -n "$ready" ]] || { echo "fixture server did not start on port $port"; cat "$work/server.log"; exit 1; }
 
 run_case() {
   local name="$1" path="$2" format="$3" expected_status="$4"
