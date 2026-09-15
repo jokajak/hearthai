@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hearthai.local/schemas/web-fetch-v1-request.schema.json",
+  "title": "web_fetch:v1 request",
+  "description": "Everything a model may supply. There is no field for request headers, stored cookies, authentication, detection rules, deadlines, egress routing, or skipping inspection, and unknown fields are refused rather than ignored.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "url"
+  ],
+  "properties": {
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2048,
+      "description": "HTTP(S) only, no userinfo, default web ports only. Validated again in the fetch stage on every redirect."
+    },
+    "format": {
+      "enum": [
+        "markdown",
+        "text",
+        "html"
+      ],
+      "default": "markdown"
+    }
+  }
+}
