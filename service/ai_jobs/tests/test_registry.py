@@ -39,6 +39,9 @@ class ExampleExtension:
     def budgets_for(self, request):
         return BrokerBudgets(0, 0, 0, 0, 0, 1)
 
+    def storage_view(self, request):
+        return dict(request)
+
     def public_failure(self, failure):
         return failure
 

@@ -1,6 +1,8 @@
 # HearthAI Roadmap
 
 > **Web capability sequence:** Add isolated webfetch with a reusable result envelope and opportunistic inspection before LLM ingestion. Future research consumes webfetch rather than building a parallel fetch pipeline. See the [implementation plan](superpowers/plans/2026-09-12-isolated-webfetch.md). Research is not implemented in this change; Git remains the first substrate validation profile.
+>
+> **Webfetch status (2026-09-15):** the tool itself is built - contracts, the bounded fetch stage, the offline inspection and conversion stage, and the rule bundle, in [`service/web_fetch/`](../service/web_fetch), with the control-plane definition in `ai-jobs`. It runs today as two processes; running each stage as its own locked-down pod waits on the `ai-jobs` executor, which does not exist yet. [`docs/runbooks/webfetch.md`](runbooks/webfetch.md) is explicit about that gap.
 
 **Status:** authoritative capability roadmap<br>
 **Last updated:** 2026-09-09<br>

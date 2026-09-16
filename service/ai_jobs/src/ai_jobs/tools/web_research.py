@@ -199,5 +199,12 @@ class WebResearchDefinition:
             raise TypeError("expected WebResearchRequest")
         return budgets_for(request)
 
+    def storage_view(self, request: object) -> dict[str, object]:
+        # The question is the request; there is no caller-supplied location to
+        # keep out of the store.
+        if not isinstance(request, WebResearchRequest):
+            raise TypeError("expected WebResearchRequest")
+        return request.to_dict()
+
     def public_failure(self, failure: ToolFailure) -> ToolFailure:
         return failure

@@ -1,0 +1,24 @@
+[package]
+name = "hearthai-webfetch-fetch-worker"
+description = "Bounded HTTP(S) fetch stage for HearthAI webfetch"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "webfetch-fetch"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+hearthai-webfetch-contracts.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+time.workspace = true
+url.workspace = true
+# default-features = false keeps ambient cookie storage, brotli and transparent
+# gzip decoding out of the fetch stage: wire bytes are stored exactly as received
+# and decoded under the inspector's limits.
+ureq = { version = "3.4.2", default-features = false, features = ["rustls", "rustls-webpki-roots"] }

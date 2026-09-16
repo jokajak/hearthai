@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hearthai.local/schemas/fetch-artifact-v1.schema.json",
+  "title": "Fetch stage artifact, version 1",
+  "description": "Written by the fetch stage next to the stored body, read by the inspection stage. The body digest and run identity bind the two together: an artifact that was altered, replayed, or produced for another run is refused before decoding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_version", "run_id", "source_id", "requested_url_sha256", "final_url", "http_status", "content_type", "content_encoding", "redirects", "retrieved_at", "format", "body_bytes", "body_sha256", "policy_profile"],
+  "properties": {
+    "artifact_version": {"const": 1},
+    "run_id": {"type": "string", "pattern": "^[a-z0-9-]{1,64}$"},
+    "source_id": {"type": "string", "pattern": "^source-[0-9]{1,32}$"},
+    "requested_url_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Audit records keep this; they never keep the URL."},
+    "final_url": {"type": "string", "maxLength": 2048},
+    "http_status": {"type": "integer", "minimum": 100, "maximum": 599},
+    "content_type": {"type": ["string", "null"], "maxLength": 200},
+    "content_encoding": {"type": ["string", "null"], "maxLength": 64},
+    "redirects": {"type": "integer", "minimum": 0, "maximum": 3},
+    "retrieved_at": {"type": "string", "format": "date-time"},
+    "format": {"enum": ["markdown", "text", "html"]},
+    "body_bytes": {"type": "integer", "minimum": 0, "maximum": 1048576},
+    "body_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "policy_profile": {"enum": ["production", "test"]}
+  }
+}

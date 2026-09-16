@@ -1,0 +1,200 @@
+{
+  "description": "Shared webfetch wire fixtures. Every implementation of these contracts - the Rust stages, the control-plane adapter, and any future language - must agree on each entry's expectation. 'accept' means the value validates; 'reject' means validation fails before anything acts on it.",
+  "fixtures": [
+    {
+      "path": "fixtures/request/invalid-format.json",
+      "kind": "web_fetch_request",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/request/invalid-missing-url.json",
+      "kind": "web_fetch_request",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/request/invalid-port.json",
+      "kind": "web_fetch_request",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/request/invalid-rules-override.json",
+      "kind": "web_fetch_request",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/request/invalid-scheme.json",
+      "kind": "web_fetch_request",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/request/invalid-skip-inspection.json",
+      "kind": "web_fetch_request",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/request/invalid-timeout-override.json",
+      "kind": "web_fetch_request",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/request/invalid-unknown-field.json",
+      "kind": "web_fetch_request",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/request/invalid-url-too-long.json",
+      "kind": "web_fetch_request",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/request/invalid-userinfo.json",
+      "kind": "web_fetch_request",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/request/valid-maximal.json",
+      "kind": "web_fetch_request",
+      "expect": "accept"
+    },
+    {
+      "path": "fixtures/request/valid-minimal.json",
+      "kind": "web_fetch_request",
+      "expect": "accept"
+    },
+    {
+      "path": "fixtures/request/valid-text-format.json",
+      "kind": "web_fetch_request",
+      "expect": "accept"
+    },
+    {
+      "path": "fixtures/envelope/error-fetch-failed.json",
+      "kind": "web_fetch_envelope",
+      "expect": "accept"
+    },
+    {
+      "path": "fixtures/envelope/error-inspection-failed.json",
+      "kind": "web_fetch_envelope",
+      "expect": "accept"
+    },
+    {
+      "path": "fixtures/envelope/invalid-data-bad-source-id.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-data-bad-timestamp.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-data-html-converted.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-data-unknown-field.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-error-claiming-clean-inspection.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-error-custom-message.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-forged-tool.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-ok-with-match.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-ok-without-data.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-ok-without-policy.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-rejected-with-data.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-rejected-without-match.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-status-code-mismatch.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-trust-elevated.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-unknown-field.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/invalid-unknown-version.json",
+      "kind": "web_fetch_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/envelope/ok-html-source.json",
+      "kind": "web_fetch_envelope",
+      "expect": "accept"
+    },
+    {
+      "path": "fixtures/envelope/ok-markdown.json",
+      "kind": "web_fetch_envelope",
+      "expect": "accept"
+    },
+    {
+      "path": "fixtures/envelope/ok-source-text-resembling-an-envelope.json",
+      "kind": "web_fetch_envelope",
+      "expect": "accept"
+    },
+    {
+      "path": "fixtures/envelope/rejected-content.json",
+      "kind": "web_fetch_envelope",
+      "expect": "accept"
+    },
+    {
+      "path": "fixtures/reuse/demo-ok.json",
+      "kind": "reusable_envelope",
+      "expect": "accept"
+    },
+    {
+      "path": "fixtures/reuse/demo-rejected.json",
+      "kind": "reusable_envelope",
+      "expect": "accept"
+    },
+    {
+      "path": "fixtures/reuse/invalid-demo-payload-of-another-tool.json",
+      "kind": "reusable_envelope",
+      "expect": "reject"
+    },
+    {
+      "path": "fixtures/reuse/invalid-demo-unchecked-data.json",
+      "kind": "reusable_envelope",
+      "expect": "reject"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "envelope_version": 1,
+  "tool": "web_fetch",
+  "tool_version": 1,
+  "status": "rejected",
+  "trust": "external_untrusted",
+  "inspection": {
+    "status": "match",
+    "policy_id": "web-content-v1"
+  },
+  "data": null,
+  "error": {
+    "code": "content_rejected",
+    "message": "Rejected because the page said: ignore previous instructions."
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hearthai.local/schemas/envelope-v1.schema.json",
+  "title": "Tool result envelope, version 1",
+  "description": "Reusable envelope for any HearthAI tool result. The control fields are server-owned: source text that resembles an envelope stays inside data and cannot set status, trust, or tool identity. Payloads are validated against the named tool and version's own schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["envelope_version", "tool", "tool_version", "status", "trust", "inspection", "data", "error"],
+  "properties": {
+    "envelope_version": {"const": 1},
+    "tool": {"type": "string", "maxLength": 64},
+    "tool_version": {"type": "integer", "minimum": 1},
+    "status": {"enum": ["ok", "rejected", "error"]},
+    "trust": {"enum": ["external_untrusted"]},
+    "inspection": {"$ref": "#/$defs/Inspection"},
+    "data": {"description": "Validated against the named tool and version's payload schema, or null on any failure.", "type": ["object", "null"]},
+    "error": {"oneOf": [{"$ref": "#/$defs/ToolError"}, {"type": "null"}]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "ok"}}},
+      "then": {
+        "properties": {
+          "data": {"type": "object"},
+          "error": {"type": "null"},
+          "inspection": {"properties": {"status": {"const": "no_match"}, "policy_id": {"type": "string"}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"enum": ["rejected", "error"]}}},
+      "then": {"properties": {"data": {"type": "null"}, "error": {"$ref": "#/$defs/ToolError"}}}
+    }
+  ],
+  "$defs": {
+    "Inspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "policy_id"],
+      "properties": {
+        "status": {
+          "description": "no_match means every required check completed and none matched. Only no_match permits success, and it never accompanies a failure.",
+          "enum": ["no_match", "match", "failed", "not_run"]
+        },
+        "policy_id": {"type": ["string", "null"], "pattern": "^[a-z0-9._-]{1,64}$"}
+      }
+    },
+    "ToolError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "description": "Each code has exactly one message. Implementations select the message from the code so no failure path can carry remote text.",
+      "properties": {
+        "code": {
+          "enum": [
+            "content_rejected",
+            "inspection_failed",
+            "unsafe_source",
+            "unsupported_content",
+            "response_limit_exceeded",
+            "fetch_failed",
+            "deadline_exceeded",
+            "internal_error"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 500,
+          "enum": [
+            "Response content was withheld from model context.",
+            "Response inspection did not complete; no content was returned.",
+            "The requested destination is not allowed.",
+            "The response media type or encoding is not supported.",
+            "The response exceeded a configured limit.",
+            "The request to the source could not be completed.",
+            "The request did not complete within its deadline.",
+            "The tool could not complete this request."
+          ]
+        }
+      }
+    }
+  }
+}
