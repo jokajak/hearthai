@@ -25,7 +25,7 @@ request ─▶ webfetch-fetch ──sealed handoff──▶ webfetch-inspect ─
   adapter both validate against the same manifest.
 
 ```sh
-cargo test --workspace      # 68 unit and contract tests
+cargo test --workspace      # 70 unit and contract tests
 ./scripts/end-to-end.sh     # both binaries against a local fixture server
 ```
 

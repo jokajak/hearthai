@@ -35,7 +35,8 @@ struct Arguments {
     /// Directory holding the compiled rule bundle.
     #[arg(long)]
     rules: PathBuf,
-    /// File holding the run-scoped key the fetch stage sealed with.
+    /// File holding the run-scoped key the fetch stage sealed with. It must be
+    /// outside `--artifact-dir`, for the same reason the fetch stage requires.
     #[arg(long)]
     handoff_key: PathBuf,
     /// Where to write the envelope. Defaults to stdout.
@@ -49,7 +50,7 @@ struct Arguments {
 fn main() -> ExitCode {
     let arguments = Arguments::parse();
 
-    let key = match HandoffKey::load(&arguments.handoff_key) {
+    let key = match HandoffKey::load_for(&arguments.handoff_key, &arguments.artifact_dir) {
         Ok(key) => key,
         Err(error) => {
             eprintln!("handoff key unusable: {error}");

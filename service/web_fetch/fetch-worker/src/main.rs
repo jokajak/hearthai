@@ -39,7 +39,9 @@ struct Arguments {
     /// Directory to write the sealed handoff into.
     #[arg(long)]
     artifact_dir: PathBuf,
-    /// File holding the run-scoped key shared with the inspection stage.
+    /// File holding the run-scoped key shared with the inspection stage. It
+    /// must be outside `--artifact-dir`: a key the handoff carries seals
+    /// nothing against whoever can write that handoff.
     #[arg(long)]
     handoff_key: PathBuf,
 }
@@ -71,7 +73,7 @@ fn main() -> ExitCode {
             "warning: running under a test destination policy; non-public destinations are reachable"
         );
     }
-    let key = match HandoffKey::load(&arguments.handoff_key) {
+    let key = match HandoffKey::load_for(&arguments.handoff_key, &arguments.artifact_dir) {
         Ok(key) => key,
         Err(error) => return unavailable("handoff key unusable", &error.to_string()),
     };

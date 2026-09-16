@@ -15,10 +15,15 @@ cargo build --manifest-path "$here/Cargo.toml" --quiet
 fetch="$here/target/debug/webfetch-fetch"
 inspect="$here/target/debug/webfetch-inspect"
 
-# The run-scoped key the controller will supply. It lives outside the handoff
-# directory, which is the only reason sealing it means anything.
-key="$work/handoff.key"
+# The run-scoped key the controller will supply, on its own path. Everything a
+# stage may write lives under $handoffs; the key does not, which is the only
+# reason sealing it means anything. The binaries refuse the other arrangement.
+keys="$work/keys"
+handoffs="$work/handoffs"
+mkdir -p "$keys" "$handoffs"
+key="$keys/handoff.key"
 head -c 32 /dev/urandom > "$key"
+chmod 400 "$key"
 
 # Pick the port ourselves rather than reading it back out of the server's
 # output: that output is block-buffered when redirected, so parsing it is a race
@@ -49,7 +54,7 @@ done
 run_case() {
   local name="$1" path="$2" format="$3" expected_status="$4"
   local run_id="run-${name}"
-  local artifacts="$work/$name"
+  local artifacts="$handoffs/$name"
   mkdir -p "$artifacts"
   printf '{"url":"http://127.0.0.1:%s/%s","format":"%s"}' "$port" "$path" "$format" >"$artifacts/request.json"
 
@@ -97,7 +102,7 @@ run_case quoted quotes-an-injection.html markdown ok
 
 # The structure of the documentation page has to survive conversion, or the tool
 # is returning something a reader would not recognise.
-python3 - "$work/docs/envelope.json" <<'PY'
+python3 - "$handoffs/docs/envelope.json" <<'PY'
 import json, sys
 content = json.load(open(sys.argv[1]))["data"]["content"]
 for expected in ("# Deploying HearthAI", "## Values", "| webfetch.enabled", "helm upgrade --install", "](https://example.com/manual)"):
@@ -107,16 +112,16 @@ print("  docs: structure preserved")
 PY
 
 # A refused destination must fail before any connection is made.
-mkdir -p "$work/refused"
-printf '{"url":"http://169.254.169.254/latest/meta-data/"}' >"$work/refused/request.json"
+mkdir -p "$handoffs/refused"
+printf '{"url":"http://169.254.169.254/latest/meta-data/"}' >"$handoffs/refused/request.json"
 set +e
-"$fetch" --run-id run-refused --request "$work/refused/request.json" \
-  --policy "$here/fixtures/test-destination-policy.json" --artifact-dir "$work/refused" \
+"$fetch" --run-id run-refused --request "$handoffs/refused/request.json" \
+  --policy "$here/fixtures/test-destination-policy.json" --artifact-dir "$handoffs/refused" \
   --handoff-key "$key" 2>/dev/null
 set -e
-"$inspect" --run-id run-refused --artifact-dir "$work/refused" --handoff-key "$key" \
-  --rules "$here/rules/web-content-v1" --out "$work/refused/envelope.json" 2>/dev/null || true
-python3 - "$work/refused/envelope.json" <<'PY'
+"$inspect" --run-id run-refused --artifact-dir "$handoffs/refused" --handoff-key "$key" \
+  --rules "$here/rules/web-content-v1" --out "$handoffs/refused/envelope.json" 2>/dev/null || true
+python3 - "$handoffs/refused/envelope.json" <<'PY'
 import json, sys
 envelope = json.load(open(sys.argv[1]))
 assert envelope["status"] == "error" and envelope["error"]["code"] == "unsafe_source", envelope
@@ -125,14 +130,14 @@ print("  metadata endpoint: unsafe_source")
 PY
 
 # A production policy refuses loopback, so the same fixture URL is unreachable.
-mkdir -p "$work/production"
-printf '{"url":"http://127.0.0.1:%s/docs.html"}' "$port" >"$work/production/request.json"
+mkdir -p "$handoffs/production"
+printf '{"url":"http://127.0.0.1:%s/docs.html"}' "$port" >"$handoffs/production/request.json"
 set +e
-"$fetch" --run-id run-production --request "$work/production/request.json" \
-  --policy "$here/deploy-destination-policy.example.json" --artifact-dir "$work/production" \
+"$fetch" --run-id run-production --request "$handoffs/production/request.json" \
+  --policy "$here/deploy-destination-policy.example.json" --artifact-dir "$handoffs/production" \
   --handoff-key "$key" 2>/dev/null
 set -e
-python3 - "$work/production/stage.json" <<'PY'
+python3 - "$handoffs/production/stage.json" <<'PY'
 import json, sys
 outcome = json.load(open(sys.argv[1]))
 assert outcome["code"] == "unsafe_source", outcome
@@ -141,8 +146,8 @@ PY
 
 # Rewriting the body and the description that covers it, consistently, is the
 # case a digest alone cannot catch.
-forged="$work/docs-forged"
-cp -r "$work/docs" "$forged"
+forged="$handoffs/docs-forged"
+cp -r "$handoffs/docs" "$forged"
 python3 - "$forged" <<'FORGE'
 import hashlib, json, pathlib, sys
 directory = pathlib.Path(sys.argv[1])
@@ -166,16 +171,28 @@ print("  forged handoff: refused")
 CHECK
 
 # A handoff sealed for this run is not readable with another key.
-head -c 32 /dev/zero > "$work/other.key"
+head -c 32 /dev/zero > "$keys/other.key"
 set +e
-"$inspect" --run-id run-docs --artifact-dir "$work/docs" --handoff-key "$work/other.key" \
-  --rules "$here/rules/web-content-v1" --out "$work/docs/other-key.json" 2>/dev/null
+"$inspect" --run-id run-docs --artifact-dir "$handoffs/docs" --handoff-key "$keys/other.key" \
+  --rules "$here/rules/web-content-v1" --out "$handoffs/docs/other-key.json" 2>/dev/null
 set -e
-python3 - "$work/docs/other-key.json" <<'CHECK'
+python3 - "$handoffs/docs/other-key.json" <<'CHECK'
 import json, sys
 envelope = json.load(open(sys.argv[1]))
 assert envelope["status"] == "error" and envelope["data"] is None, envelope
 print("  another key: refused")
 CHECK
+
+# The arrangement the seal depends on is enforced, not just documented: a key
+# stored in the handoff it seals is refused before anything is fetched.
+cp "$key" "$handoffs/docs/handoff.key"
+status=0
+"$fetch" --run-id run-keyplace --request "$handoffs/docs/request.json" \
+  --policy "$here/fixtures/test-destination-policy.json" --artifact-dir "$handoffs/docs" \
+  --handoff-key "$handoffs/docs/handoff.key" >/dev/null 2>"$work/keyplace.log" || status=$?
+test "$status" = "2" || { echo "a key inside the handoff was accepted"; exit 1; }
+grep -q "inside the handoff directory" "$work/keyplace.log" \
+  || { echo "the refusal did not name the reason"; cat "$work/keyplace.log"; exit 1; }
+echo "  key inside the handoff: refused"
 
 echo "end to end: ok"

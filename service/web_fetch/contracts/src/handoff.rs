@@ -47,6 +47,25 @@ type HmacSha256 = Hmac<Sha256>;
 pub struct HandoffKey(Vec<u8>);
 
 impl HandoffKey {
+    /// Load the key for a run whose handoff lives in `directory`.
+    ///
+    /// The key must not be inside that directory. This is the whole basis of
+    /// the seal: it is worth something only against an actor who can reach the
+    /// handoff and not the key, and a key stored in the handoff - or on a volume
+    /// mounted with it - hands that actor both. Refusing the arrangement is more
+    /// useful than documenting it, because the mistake looks harmless.
+    pub fn load_for(path: &Path, directory: &Path) -> Result<Self> {
+        let key_path = path
+            .canonicalize()
+            .map_err(|error| ContractError::new(format!("handoff key is unreadable: {error}")))?;
+        if key_path.starts_with(resolved(directory)) {
+            return Err(ContractError::new(
+                "handoff key must not live inside the handoff directory; give it its own path or mount",
+            ));
+        }
+        Self::load(&key_path)
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
         let material = fs::read(path)
             .map_err(|error| ContractError::new(format!("handoff key is unreadable: {error}")))?;
@@ -160,7 +179,11 @@ impl Handoff {
     /// can see the bytes.
     pub fn read(&self) -> Result<Handed> {
         let stage_bytes = self.get(StageOutcome::FILE)?;
-        let artifact_bytes = self.get(ARTIFACT_FILE).unwrap_or_default();
+        // Absent means a recorded failure with nothing to inspect. Anything else
+        // - a permission problem, a broken mount, a directory where a file
+        // belongs - is a failure to read the handoff, and saying "no artifact"
+        // for it would report the wrong thing about the run.
+        let artifact_bytes = self.get_optional(ARTIFACT_FILE)?.unwrap_or_default();
         let recorded = fs::read_to_string(self.directory.join(SEAL_FILE))
             .map_err(|error| ContractError::new(format!("handoff is not sealed: {error}")))?;
 
@@ -250,6 +273,40 @@ impl Handoff {
     fn get(&self, name: &str) -> Result<Vec<u8>> {
         fs::read(self.directory.join(name))
             .map_err(|error| ContractError::new(format!("{name}: {error}")))
+    }
+
+    fn get_optional(&self, name: &str) -> Result<Option<Vec<u8>>> {
+        match fs::read(self.directory.join(name)) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(ContractError::new(format!("{name}: {error}"))),
+        }
+    }
+}
+
+/// Resolve as much of a path as exists, so a directory the fetch stage has not
+/// created yet can still be compared against a real key path.
+fn resolved(path: &Path) -> PathBuf {
+    let mut remainder = Vec::new();
+    let mut candidate = path.to_path_buf();
+    loop {
+        if let Ok(existing) = candidate.canonicalize() {
+            let mut resolved = existing;
+            for component in remainder.iter().rev() {
+                resolved.push(component);
+            }
+            return resolved;
+        }
+        match (
+            candidate.file_name().map(std::ffi::OsString::from),
+            candidate.parent(),
+        ) {
+            (Some(name), Some(parent)) => {
+                remainder.push(name);
+                candidate = parent.to_path_buf();
+            }
+            _ => return path.to_path_buf(),
+        }
     }
 }
 
@@ -451,6 +508,42 @@ mod tests {
             handoff.read().is_err(),
             "an unsealed handoff must not be read"
         );
+    }
+
+    #[test]
+    fn a_key_stored_in_the_handoff_it_seals_is_refused() {
+        let directory = Directory::new("key-placement");
+        let inside = directory.0.join("handoff.key");
+        fs::write(&inside, [9u8; 32]).expect("write");
+        let error = HandoffKey::load_for(&inside, &directory.0)
+            .expect_err("a key inside the handoff must be refused");
+        assert!(
+            error.message().contains("inside the handoff directory"),
+            "{error}"
+        );
+
+        // The intended arrangement: the key beside the handoff, not in it. The
+        // handoff directory need not exist yet, because the fetch stage creates it.
+        let beside = directory.0.join("run.key");
+        fs::write(&beside, [9u8; 32]).expect("write");
+        HandoffKey::load_for(&beside, &directory.0.join("handoff"))
+            .expect("a key outside is accepted");
+    }
+
+    #[test]
+    fn a_handoff_that_cannot_be_read_is_an_error_rather_than_an_absent_artifact() {
+        let directory = Directory::new("unreadable");
+        let handoff = Handoff::new(&directory.0, "run-1", key(1));
+        handoff
+            .write_failure(ErrorCode::FetchFailed)
+            .expect("written");
+
+        // A directory where the artifact file belongs is not "no artifact".
+        fs::create_dir(directory.0.join(ARTIFACT_FILE)).expect("replace with a directory");
+        let error = handoff
+            .read()
+            .expect_err("an unreadable artifact must not read as absent");
+        assert!(error.message().contains(ARTIFACT_FILE), "{error}");
     }
 
     #[test]

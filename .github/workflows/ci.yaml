@@ -105,11 +105,18 @@ jobs:
       - name: Both images run non-root and fail closed
         run: |
           set -euo pipefail
+          # Two volumes, the way the executor will have to mount them: the
+          # handoff is writable by the stages, and the key is somewhere they
+          # cannot write and nothing else can read. A key on the handoff volume
+          # would be readable by anyone who can tamper with the handoff, which
+          # is exactly the actor the seal is for - so the binaries refuse it.
           work="$(mktemp -d)"
-          chmod 777 "$work"
-          echo '{"url":"https://example.com/"}' > "$work/request.json"
-          head -c 32 /dev/urandom > "$work/handoff.key"
-          chmod 644 "$work/handoff.key"
+          mkdir -p "$work/handoff" "$work/keys"
+          chmod 777 "$work/handoff"
+          chmod 755 "$work/keys"
+          echo '{"url":"https://example.com/"}' > "$work/handoff/request.json"
+          head -c 32 /dev/urandom > "$work/keys/handoff.key"
+          chmod 644 "$work/keys/handoff.key"
 
           echo "--- neither image runs as root ---"
           for image in webfetch-fetch:ci webfetch-inspect:ci; do
@@ -119,29 +126,39 @@ jobs:
 
           echo "--- a missing destination policy leaves the capability unavailable ---"
           status=0
-          docker run --rm -v "$work:/run" webfetch-fetch:ci \
+          docker run --rm -v "$work/handoff:/run" -v "$work/keys:/keys:ro" webfetch-fetch:ci \
             --run-id run-ci --request /run/request.json --policy /run/absent.json \
-            --artifact-dir /run --handoff-key /run/handoff.key || status=$?
+            --artifact-dir /run --handoff-key /keys/handoff.key || status=$?
           test "$status" = "2"
-          test ! -f "$work/artifact.json"
+          test ! -f "$work/handoff/artifact.json"
 
           echo "--- with no usable rule bundle the inspector returns no content ---"
           status=0
-          docker run --rm -v "$work:/run" webfetch-inspect:ci \
+          docker run --rm -v "$work/handoff:/run" -v "$work/keys:/keys:ro" webfetch-inspect:ci \
             --run-id run-ci --artifact-dir /run --rules /run/absent \
-            --handoff-key /run/handoff.key --out /run/envelope.json || status=$?
+            --handoff-key /keys/handoff.key --out /run/envelope.json || status=$?
           test "$status" = "2"
-          python3 -c "import json,sys; e=json.load(open(sys.argv[1])); assert e['status']=='error' and e['error']['code']=='inspection_failed' and e['data'] is None, e; print('fails closed with no content')" "$work/envelope.json"
+          python3 -c "import json,sys; e=json.load(open(sys.argv[1])); assert e['status']=='error' and e['error']['code']=='inspection_failed' and e['data'] is None, e; print('fails closed with no content')" "$work/handoff/envelope.json"
 
           echo "--- the bundle shipped in the image is the one it compiles ---"
           status=0
-          docker run --rm -v "$work:/run" webfetch-inspect:ci \
+          docker run --rm -v "$work/handoff:/run" -v "$work/keys:/keys:ro" webfetch-inspect:ci \
             --run-id run-ci --artifact-dir /run --rules /opt/webfetch/rules/web-content-v1 \
-            --handoff-key /run/handoff.key --out /run/envelope.json || status=$?
+            --handoff-key /keys/handoff.key --out /run/envelope.json || status=$?
           # No handoff for this run, so the result is an error - but reaching it
           # means the shipped bundle compiled.
           test "$status" = "1"
-          python3 -c "import json,sys; e=json.load(open(sys.argv[1])); assert e['error']['code']=='internal_error' and e['data'] is None, e; print('shipped bundle compiles')" "$work/envelope.json"
+          python3 -c "import json,sys; e=json.load(open(sys.argv[1])); assert e['error']['code']=='internal_error' and e['data'] is None, e; print('shipped bundle compiles')" "$work/handoff/envelope.json"
+
+          echo "--- a key on the handoff volume is refused ---"
+          cp "$work/keys/handoff.key" "$work/handoff/handoff.key"
+          status=0
+          docker run --rm -v "$work/handoff:/run" webfetch-inspect:ci \
+            --run-id run-ci --artifact-dir /run --rules /opt/webfetch/rules/web-content-v1 \
+            --handoff-key /run/handoff.key --out /run/misplaced.json 2>"$work/misplaced.log" || status=$?
+          test "$status" = "2"
+          grep -q "inside the handoff directory" "$work/misplaced.log"
+          echo "the mount contract is enforced, not just documented"
 
   image:
     name: build image

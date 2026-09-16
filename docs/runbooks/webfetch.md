@@ -44,13 +44,39 @@ What it does not cover, and must not be described as covering:
   can seal, it can seal dishonestly. The defence against that is the stage split
   and the fetcher's own limits, not this.
 * **Anyone who can read the key.** Mount it so that only the two stages of one
-  run can, and give each run a fresh one.
+  run can, and give each run a fresh one - see [the mount
+  contract](#the-mount-contract) for what that means concretely.
 * **The handoff being writable at all.** The executor should make the directory
   read-only to the inspection stage; the seal is what the two binaries can prove
   on their own, not a replacement for that boundary.
 
-Generate a key with `head -c 32 /dev/urandom > run.key`. Anything shorter than
-32 bytes is refused as a misconfiguration rather than accepted as a weaker mode.
+### The mount contract
+
+The seal is worth something only against an actor who can reach the handoff and
+not the key, so where the key lives *is* the security property. Both binaries
+refuse a key inside `--artifact-dir` rather than trusting the operator to notice,
+and the executor will have to satisfy this:
+
+| Path | Who may write | Who may read |
+|---|---|---|
+| The handoff directory (`--artifact-dir`) | Both stages of this run | Both stages of this run |
+| The key file (`--handoff-key`) | Nothing at runtime | Both stages of this run, read-only |
+
+Concretely, for the two pods:
+
+* Two separate volumes. The handoff is an `emptyDir` shared by the stages; the
+  key is a separate read-only mount - a projected secret, or a file the
+  controller writes before either stage starts.
+* **The key must not be on the handoff volume, or on any volume mounted with
+  it.** Mounting one directory that holds both, which is the easy mistake, gives
+  a handoff-volume writer the key as well and the seal stops meaning anything.
+  `scripts/end-to-end.sh` and the image job in CI both use separate paths and
+  assert that the combined arrangement is refused.
+* A fresh key per run, at least 32 bytes. Anything shorter is refused as a
+  misconfiguration rather than accepted as a weaker mode. Generate one with
+  `head -c 32 /dev/urandom > run.key`.
+* Nothing else should be able to read it - not other runs, not the rest of the
+  cluster.
 
 ## Running it locally
 
@@ -64,18 +90,22 @@ One request by hand:
 
 ```bash
 work=$(mktemp -d)
+mkdir -p "$work/handoff" "$work/keys"          # separate paths, on purpose
 echo '{"url":"https://example.com/","format":"markdown"}' > "$work/request.json"
-head -c 32 /dev/urandom > "$work/handoff.key"   # the controller supplies this per run
+head -c 32 /dev/urandom > "$work/keys/run.key" # the controller supplies this per run
 
 cargo run --bin webfetch-fetch -- \
   --run-id run-1 --request "$work/request.json" \
   --policy deploy-destination-policy.example.json \
-  --artifact-dir "$work" --handoff-key "$work/handoff.key"
+  --artifact-dir "$work/handoff" --handoff-key "$work/keys/run.key"
 
 cargo run --bin webfetch-inspect -- \
-  --run-id run-1 --artifact-dir "$work" --rules rules/web-content-v1 \
-  --handoff-key "$work/handoff.key"
+  --run-id run-1 --artifact-dir "$work/handoff" --rules rules/web-content-v1 \
+  --handoff-key "$work/keys/run.key"
 ```
+
+Putting the key inside `$work/handoff` instead is refused by both binaries; see
+[the mount contract](#the-mount-contract).
 
 Both binaries take `--help`.
 
