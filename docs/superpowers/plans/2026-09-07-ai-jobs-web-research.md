@@ -1,5 +1,7 @@
 # AI Jobs Web Research Implementation Plan
 
+> **Substrate planning update (2026-09-17):** The [AI jobs workflow plan](2026-09-17-ai-jobs-workflows.md) supersedes this document's web-research-first ordering and single-Job executor assumption. It evaluates Tekton behind `ai-jobs`, validates Git first, and makes research a later consumer of webfetch. Compatible contracts remain useful; the historical implementation tasks below are not a parallel execution-backend mandate.
+
 > **Dependency correction from PR #10 review:** Implement [webfetch and its reusable envelope](../specs/2026-09-12-isolated-webfetch-design.md#reusable-result-envelope) first. Future research consumes that capability through the broker, preserving its provenance, rejection behavior and parent-run budgets. The page-fetch implementation proposed below is superseded by delegation to webfetch; research must not ship a parallel HTTP/conversion/scanning pipeline. Research implementation remains outside the current webfetch work. Existing language/file choices below are historical starting points, not a Python requirement.
 
 > **Planning only.** This document defines the implementation sequence for the first

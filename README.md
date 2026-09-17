@@ -40,6 +40,14 @@ shared-memory service. The shared-memory chat adapter and deployable `ai-jobs`
 runtime remain pending. home-ops consumes the package; it does not need to recreate
 the application deployment there.
 
+## AI jobs execution planning
+
+The [workflow architecture](docs/superpowers/specs/2026-09-17-ai-jobs-workflows-design.md)
+and [implementation plan](docs/superpowers/plans/2026-09-17-ai-jobs-workflows.md)
+propose evaluating Tekton behind `ai-jobs`, with n8n reserved for future upstream
+automations. Implement Git first; recovery engineering and latency trials are deferred;
+no runtime backend is deployed yet.
+
 ## Current product priority
 
 HearthAI must first remove friction from work Josh already does: **GitHub contribution, current
