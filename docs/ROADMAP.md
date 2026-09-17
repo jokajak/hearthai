@@ -5,7 +5,7 @@
 > **Webfetch status (2026-09-15):** the tool itself is built - contracts, the bounded fetch stage, the offline inspection and conversion stage, and the rule bundle, in [`service/web_fetch/`](../service/web_fetch), with the control-plane definition in `ai-jobs`. It runs today as two processes; running each stage as its own locked-down pod waits on the `ai-jobs` executor, which does not exist yet. [`docs/runbooks/webfetch.md`](runbooks/webfetch.md) is explicit about that gap.
 
 **Status:** authoritative capability roadmap<br>
-**Last updated:** 2026-09-09<br>
+**Last updated:** 2026-09-17<br>
 **Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)<br>
 **Design detail:** [`superpowers/specs/2026-08-30-capability-roadmap-design.md`](superpowers/specs/2026-08-30-capability-roadmap-design.md)
 
@@ -76,6 +76,25 @@ Repository authority requires **both** an explicit HearthAI authorization record
 repository in the GitHub App installation. Removing either blocks the next run. The `ai-jobs`
 control plane owns the durable run audit: request, selected profile, authorization decision,
 approval, pod identity, repository/ref, produced commits, checks, and GitHub actor.
+
+## AI jobs implementation sequence — proposed 2026-09-17
+
+See the [workflow architecture](superpowers/specs/2026-09-17-ai-jobs-workflows-design.md)
+and [implementation plan](superpowers/plans/2026-09-17-ai-jobs-workflows.md).
+The proposed backend is Tekton Pipelines behind the existing `ai-jobs` control plane;
+plain Kubernetes Jobs remain the fallback if the measured spike fails.
+
+1. Prove Git isolation, artifact transfer, restart/cancellation behavior and webfetch
+   latency; record the engine and run-scoped storage decisions.
+2. Implement durable admission, dispatch, authorization, reconciliation and cleanup.
+3. Implement the selected executor and ship Git change as the first usable profile.
+4. Wire the existing webfetch workers and validate their end-to-end deadline.
+5. Package the runtime and chat adapter in HearthAI with explicit cluster prerequisites.
+6. Add research through webfetch; consider n8n only for a named upstream automation.
+
+This is planning, not a claim that the executor is implemented. It supersedes the
+September 7 plan's web-research-first/single-Job executor assumptions and does not
+change the product priority above.
 
 ## Earlier roadmap detail — pending rewrite
 

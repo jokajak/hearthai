@@ -59,14 +59,17 @@ and the executor will have to satisfy this:
 
 | Path | Who may write | Who may read |
 |---|---|---|
-| The handoff directory (`--artifact-dir`) | Both stages of this run | Both stages of this run |
+| The handoff directory (`--artifact-dir`) | Fetch writes; the current local inspector deletes the body | Both stages of this run |
 | The key file (`--handoff-key`) | Nothing at runtime | Both stages of this run, read-only |
 
 Concretely, for the two pods:
 
-* Two separate volumes. The handoff is an `emptyDir` shared by the stages; the
-  key is a separate read-only mount - a projected secret, or a file the
-  controller writes before either stage starts.
+* Separate artifact and key mounts. An `emptyDir` is pod-local and cannot
+  transfer the handoff between the two worker pods. The
+  [AI jobs workflow design](../superpowers/specs/2026-09-17-ai-jobs-workflows-design.md#handoff-proposal-and-explicit-policy-trade-off)
+  proposes run-scoped staging storage and trusted transfer/collection Tasks,
+  subject to a storage-policy and latency gate; that transport is not implemented.
+  The key remains a separate read-only mount, such as a per-run Secret.
 * **The key must not be on the handoff volume, or on any volume mounted with
   it.** Mounting one directory that holds both, which is the easy mistake, gives
   a handoff-volume writer the key as well and the seal stops meaning anything.
@@ -77,6 +80,11 @@ Concretely, for the two pods:
   `head -c 32 /dev/urandom > run.key`.
 * Nothing else should be able to read it - not other runs, not the rest of the
   cluster.
+
+The proposed cluster transport makes finalized inspector input read-only and
+moves deletion to executor-managed cleanup. That requires an explicit change to
+the current inspector cleanup behavior; the local two-process contract above
+does not already implement it.
 
 ## Running it locally
 
