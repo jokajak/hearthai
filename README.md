@@ -45,7 +45,7 @@ the application deployment there.
 The [workflow architecture](docs/superpowers/specs/2026-09-17-ai-jobs-workflows-design.md)
 and [implementation plan](docs/superpowers/plans/2026-09-17-ai-jobs-workflows.md)
 propose evaluating Tekton behind `ai-jobs`, with n8n reserved for future upstream
-automations. Adoption depends on a Git-profile and webfetch isolation/latency spike;
+automations. Implement Git first; recovery engineering and latency trials are deferred;
 no runtime backend is deployed yet.
 
 ## Current product priority

@@ -33,10 +33,11 @@ to introduce a Rust worker behind the existing versioned contracts.
 
 The [AI jobs workflow design](superpowers/specs/2026-09-17-ai-jobs-workflows-design.md)
 and [implementation plan](superpowers/plans/2026-09-17-ai-jobs-workflows.md) propose
-Tekton as the execution backend behind this boundary, subject to a measured spike.
-They specify ownership, recovery, artifact transfer and the limited run-scoped
+Tekton as the execution backend behind this boundary, with Git implemented first.
+They specify ownership, artifact transfer and the limited run-scoped
 storage exception that must be decided before implementation. n8n remains an
-optional upstream automation layer. These proposals are not deployed behavior.
+optional upstream automation layer. Recovery engineering and latency trials are deferred, with no fixed pod time budget.
+These proposals are not deployed behavior.
 
 The **`ai-jobs` control plane** is HearthAI's distinct execution substrate. It admits typed,
 model-callable capability requests, evaluates HearthAI authorization, selects a fixed reviewed
@@ -465,7 +466,7 @@ These decisions follow evidence from 0.1 and 0.2.
 | OpenWebUI native MCP | Approved integration surface for 0.4, subject to governance |
 | Personal memory migration to HearthAI | Unresolved |
 | Neo4j or graph backend | Deferred until a measured graph-shaped query exists |
-| Tekton Pipelines behind `ai-jobs` | Proposed; adoption gated by the [workflow design](superpowers/specs/2026-09-17-ai-jobs-workflows-design.md) spike |
+| Tekton Pipelines behind `ai-jobs` | Planned backend in the [workflow design](superpowers/specs/2026-09-17-ai-jobs-workflows-design.md); no recovery or latency trial required |
 | n8n | Optional upstream automation; deferred until a concrete recurring workflow exists |
 | Rich multi-user identity | Deferred without a release number |
 

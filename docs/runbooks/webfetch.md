@@ -68,7 +68,7 @@ Concretely, for the two pods:
   transfer the handoff between the two worker pods. The
   [AI jobs workflow design](../superpowers/specs/2026-09-17-ai-jobs-workflows-design.md#handoff-proposal-and-explicit-policy-trade-off)
   proposes run-scoped staging storage and trusted transfer/collection Tasks,
-  subject to a storage-policy and latency gate; that transport is not implemented.
+  with an explicit run-scoped storage exception; that transport is not implemented.
   The key remains a separate read-only mount, such as a per-run Secret.
 * **The key must not be on the handoff volume, or on any volume mounted with
   it.** Mounting one directory that holds both, which is the easy mistake, gives

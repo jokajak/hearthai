@@ -82,13 +82,15 @@ approval, pod identity, repository/ref, produced commits, checks, and GitHub act
 See the [workflow architecture](superpowers/specs/2026-09-17-ai-jobs-workflows-design.md)
 and [implementation plan](superpowers/plans/2026-09-17-ai-jobs-workflows.md).
 The proposed backend is Tekton Pipelines behind the existing `ai-jobs` control plane;
-plain Kubernetes Jobs remain the fallback if the measured spike fails.
+plain Kubernetes Jobs remain an alternative if a concrete integration problem arises.
+Recovery engineering and latency trials are deferred. There is no fixed pod time budget;
+existing timeout constants are implementation defaults, not acceptance criteria.
 
-1. Prove Git isolation, artifact transfer, restart/cancellation behavior and webfetch
-   latency; record the engine and run-scoped storage decisions.
-2. Implement durable admission, dispatch, authorization, reconciliation and cleanup.
+1. Implement the Git/Tekton integration and artifact boundaries; record run-scoped
+   storage decisions.
+2. Implement admission, persistence, dispatch, authorization and normal cleanup.
 3. Implement the selected executor and ship Git change as the first usable profile.
-4. Wire the existing webfetch workers and validate their end-to-end deadline.
+4. Wire the existing webfetch workers with configurable operational timeouts.
 5. Package the runtime and chat adapter in HearthAI with explicit cluster prerequisites.
 6. Add research through webfetch; consider n8n only for a named upstream automation.
 

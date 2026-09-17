@@ -6,9 +6,12 @@
 
 ## Recommendation
 
-Use **Tekton Pipelines as the first execution-backend candidate**, behind the existing
-`ai-jobs` boundary. Prove the Git change profile and the webfetch latency/isolation
-constraints in a bounded spike before adopting it. Keep `ai-jobs` small: HearthAI
+Use **Tekton Pipelines as the planned execution backend**, behind the existing
+`ai-jobs` boundary. Implement the Git change profile first to validate the integration.
+Recovery engineering and latency trials are deferred; neither is an adoption gate.
+There is no fixed pod time budget or performance target at this stage. Existing
+code-level timeout constants are implementation defaults to revisit, not product
+requirements. Keep `ai-jobs` small: HearthAI
 policy and product semantics belong here; task dependency scheduling belongs in
 Tekton. Do not build a general workflow language, scheduler, or DAG interpreter.
 
@@ -16,8 +19,8 @@ Keep **n8n optional, above `ai-jobs`**, for a concrete recurring automation that
 benefits from its triggers, integrations, and waits. It is not the tool sandbox or
 an alternative authorization service. Do not deploy both engines for the first release.
 
-Plain Kubernetes Jobs remain the fallback if Tekton's operational cost or startup
-latency outweighs the dependency handling it removes. In that case implement only
+Plain Kubernetes Jobs remain an alternative if implementation exposes a concrete
+compatibility or operational problem with Tekton. In that case implement only
 the fixed stage sequences required by the shipped profiles. Do not maintain two
 production backends until measurements establish a need for both.
 
@@ -33,7 +36,7 @@ Reviewed against main commit `87623b22b7ab82de527365276c293b85f11d44c1`.
 | --- | --- | --- |
 | `service/ai_jobs/src/ai_jobs/contracts.py` | Run states and typed contracts | Production transport and authenticated caller identity |
 | `registry.py`, `tools/git_change.py`, `tools/web_fetch.py` | Closed registry and versioned capability definitions | Repository authorization and credential broker; Git result validation |
-| `runs.py` | Validation, request digest, idempotent admission | Transactional dispatch, restart recovery, authorization before dispatch |
+| `runs.py` | Validation, request digest, idempotent admission | Authenticated dispatch and authorization; restart recovery is deferred |
 | `storage.py` | `RunStore` protocol and in-memory implementation | Durable run, attempt, audit, and publication records |
 | `executor.py` | `start(run_id, profile)` and `cancel(run_id)` protocol | Kubernetes implementation, observation, cleanup, request delivery |
 | `service/web_fetch/` | Rust fetch and inspection binaries, envelopes, sealed handoff | Separate pods, handoff transport, packaged runtime integration |
@@ -43,7 +46,7 @@ The executor currently receives no validated request. Webfetch's stored request
 intentionally contains a URL digest, not the URL. An executor cannot reconstruct
 that input from the run record. The implementation must solve dispatch and input
 lifetime together, rather than adding a Tekton client to `start()` and assuming
-recovery already works. Git's result validator is explicitly unimplemented.
+request delivery already works. Git's result validator is explicitly unimplemented.
 
 ## Comparing the choices
 
@@ -104,7 +107,8 @@ flowchart TD
 `ai-jobs` stays the **single HearthAI execution control plane**. Tekton is an
 implementation dependency, not a second model-facing job API. The database owns
 HearthAI business state and audit; Kubernetes owns observed execution state.
-The adapter reconciles them. It does not reschedule Tekton's individual Tasks.
+The adapter observes execution and records results. Restart reconciliation is
+follow-on work; it does not reschedule Tekton's individual Tasks.
 
 All model-callable tools, including future memory or knowledge tools, must use
 this admission boundary when enabled. An Open WebUI built-in or n8n Code node must
@@ -119,8 +123,8 @@ Tekton is not a reason to rewrite it. Rust webfetch stays language-neutral.
 Go remains an option if concrete controller needs justify it later.
 
 - `RunService` handles typed admission and authorization, without Kubernetes details.
-- `Run` encapsulates legal transitions, deadlines and terminal-state rules.
-- `RunRepository` implements transactions, idempotency and durable dispatch intent.
+- `Run` encapsulates legal transitions and terminal-state rules.
+- `RunRepository` implements persistence, idempotency and audit.
 - `ProfileCatalog` resolves a reviewed version to fixed tasks, images, limits and policy.
 - `TektonExecutor` submits, observes and cancels that profile; it does not decide authority.
 - `ArtifactStore` owns bounded transfer, finalization, retention and cleanup.
@@ -139,55 +143,42 @@ short-lived input, never inline credentials or an arbitrary Kubernetes manifest.
 
 ## Admission, dispatch and lifecycle
 
-1. Authenticate the caller and authorize the requested tool and opaque repository ID.
-   Resolve the provider, base commit, grants, approval requirements and budget.
-2. Atomically create the run, admission audit and dispatch intent. Retain the existing
-   caller/tool/version/idempotency-key uniqueness and payload-digest conflict behavior.
-3. Dispatch with a deterministic Kubernetes name derived from run ID and attempt.
-   On an ambiguous create response, read that name and verify UID/spec identity;
-   do not blindly submit a new PipelineRun. Persist the Kubernetes UID and profile digest.
-4. Watch and periodically reconcile active executions. Recover a lost watch by listing
-   owned resources. Terminal state and result publication use compare-and-set updates.
-5. Validate the result envelope or Git publication receipt before committing success.
-   A successful PipelineRun alone is insufficient. Cleanup follows durable result capture.
+1. Authenticate and authorize the tool and opaque repository ID. Resolve the
+   provider, base commit, grants and any required approval.
+2. Persist the run and admission audit. Retain caller/tool/version/idempotency-key
+   uniqueness and payload-digest conflict behavior.
+3. Submit the fixed Tekton profile with a run-derived name and record its identity.
+   Duplicate client requests return the existing run; they do not create new work.
+4. Observe task completion, validate the result envelope or Git receipt, and record
+   the terminal state before cleaning up the run's resources.
 
-Keep the existing public-neutral states: `accepted`, `starting`, `running`,
-`succeeded`, `failed`, `timed_out`, `cancelled`. Add internal execution attempts,
-`cancel_requested_at`, cleanup status and publication reconciliation status rather
-than pretending every detail is a new public job API.
+Keep the existing states: `accepted`, `starting`, `running`, `succeeded`, `failed`,
+`timed_out`, `cancelled`. Validate transitions and prevent late results from
+replacing terminal outcomes. Basic explicit cancellation stops remaining work;
+no restart-recovery framework or fault-injection trial is required initially.
 
-| Event | HearthAI behavior |
-| --- | --- |
-| Accepted request awaiting capacity | Persist `accepted`; bounded queue and admission deadline |
-| Backend resource created, pods pending | `starting`; queue/startup time consumes the overall deadline |
-| Task execution observed | `running` |
-| Execution complete with valid successful result | `succeeded` |
-| Infrastructure failure, rejected or invalid result | Stable tool-specific failure; preserve operator-only diagnostic detail |
-| Cancellation requested | Revoke run grants, request backend cancellation, prevent subsequent publication |
-| Cancellation confirmed | `cancelled`; do not claim stopped while pods still execute |
-| Overall deadline reached | Revoke grants, record `timed_out`, cancel backend and continue cleanup reconciliation |
-| Late result | Cannot overwrite a terminal state; retain any already-created external effect in audit |
+Do not automatically replay an externally mutating stage after an ambiguous failure.
+Record uncertainty and leave inspection/manual resolution to the operator for now.
+Transactional outboxes, restart reconciliation, automatic publication recovery and
+leader failover are deferred until there is a concrete need.
 
-Retries have one owner per layer: the dispatcher retries API delivery, Tekton
-retries explicitly safe computation within the original deadline, and provider
-adapters reconcile ambiguous external writes. Do not automatically retry a whole
-Git publication or a model run after a partial side effect. Unknown publication
-outcome requires reconciliation before retry. Deadlines and budgets never reset
-on a retry; parent research grants and budgets bound any future child fetch runs.
+### Timing and input lifetime
 
-### Input privacy and restart behavior
+There is no prescribed short or long pod runtime budget. Operational timeouts may
+be configurable to stop abandoned work, but they are not performance targets and
+must not determine engine choice. The existing webfetch 25-second constant is not
+a requirement for this architecture; update that default/configuration when wiring
+the executor. HTTP connection timeouts and pod execution duration are separate
+concerns. Adapt the chat integration to the work instead of forcing every pipeline
+into a short synchronous HTTP request.
 
 Durable audit keeps tool-approved storage views. Full webfetch URLs, raw responses,
 provider credentials and prompts must not become Tekton params, labels, Results,
 exception strings or general logs. Params carry opaque run/input/artifact IDs only.
-
-For the first release, sensitive full inputs live in a bounded volatile input
-store until delivered to the worker. The durable dispatch record stores only its
-reference. If the control plane restarts before delivery and input is lost, fail
-that run deterministically; a new invocation needs a new idempotency key. Do not
-claim seamless replay from a digest. Already-started runs can be observed and their
-available results recovered. Persisting encrypted short-lived inputs for replay
-is a later explicit retention decision, not an accidental prerequisite for Tekton.
+Deliver validated input explicitly through bounded temporary storage. A URL digest
+cannot reconstruct a request. Lost input or an interrupted run may require manual
+cleanup and a fresh invocation initially; seamless restart recovery is not promised.
+Do not persist sensitive inputs merely to implement deferred replay behavior.
 
 ## Profiles and artifact boundaries
 
@@ -213,9 +204,9 @@ pinned repository base and applies changes without executing repository code, Gi
 hooks, filters or submodule commands from that repository.
 
 The publisher gets a short-lived repository-scoped write token only after authority,
-approval, cancellation and deadline checks. It uses a run-derived branch and a
-persisted publication intent. If a push or PR creation succeeds but the response
-is lost, reconcile the expected branch, commit and existing PR before retrying.
+approval and cancellation checks, plus any configured operational timeout. It uses a run-derived branch. If a push or PR creation has an ambiguous outcome,
+record it and require operator inspection before retrying; automatic publication
+recovery is deferred.
 Record base/head commits, artifact digest, checks and provider actor. Never merge
 or push directly to the protected base branch. A changed base requires an explicit
 conflict/rebase policy; do not silently republish different content under an old approval.
@@ -243,7 +234,7 @@ handoff storage and only accepted envelopes reach the model.
 An `emptyDir` cannot be shared across Tasks/pods. Tekton Workspaces do not change
 that. [Tekton Workspaces](https://tekton.dev/docs/pipelines/workspaces/).
 
-**Proposed spike transport:** isolated, per-run staging PVCs for bounded artifacts,
+**Proposed transport:** isolated, per-run staging PVCs for bounded artifacts,
 with fresh pod-local `emptyDir` workspaces for repository execution. Trusted transfer
 Tasks finalize artifacts, copy them to separate consumer claims, and terminate
 before consumers start. A publisher never mounts a claim that the Git worker could
@@ -254,8 +245,8 @@ stage, digest and size; reject cross-run references, path traversal, symlinks an
 oversized files. Artifacts are worker-controlled data, not approval or authority.
 
 This is an **explicit proposed exception** to the existing no-durable-volume rule:
-run-scoped handoff storage can outlive a pod for transfer/recovery, but is never a
-reusable worker workspace. Accept or reject this exception in the spike decision.
+run-scoped handoff storage can outlive a pod for transfer, but is never a
+reusable worker workspace. Record this limited exception when implementing the handoff.
 No shared household NFS workspace or cross-run claim is allowed. An untrusted
 worker may write only its outgoing artifact area, not its consumer's copy. Finalize
 only after all producer containers terminate. Storage cleanup requires deleting
@@ -263,17 +254,15 @@ both claims and underlying volumes according to the tested reclaim policy; PVC
 deletion alone is not proof of data erasure.
 
 The current inspector tries to delete the raw body. For read-only input, add an
-explicit executor-managed cleanup mode and put responsibility in the collector/
-janitor; do not ignore a failed delete and claim raw data is gone. Preserve the
+explicit executor-managed cleanup mode and put responsibility in executor-managed
+cleanup; do not ignore a failed delete and claim raw data is gone. Preserve the
 HMAC key outside all artifact volumes. Limit output/log retention independently.
 
 The extra transfer/collection Tasks are part of the reviewed fixed profile, with
 bounded resources and no model-facing operations. This expands the physical pod
-count beyond the original two webfetch workers and must be measured against the
-existing 25-second overall budget. If this is too slow or storage policy is
-unacceptable, stop and record a revised transport/backend decision. Do not quietly
-combine fetch and inspection in one pod, enable inspector networking, or increase
-the public deadline to make a benchmark pass.
+count beyond the original two webfetch workers. There is no latency trial or
+25-second adoption gate. Keep fetch and inspection separate and inspection offline;
+choose timeout configuration to suit the workflow when implementing it.
 
 ## Deployment and operations
 
@@ -291,30 +280,28 @@ never expose the Kubernetes API to Open WebUI or n8n. Cluster RBAC scopes the
 controller; fixed-spec validation remains necessary because permission to create
 a TaskRun can indirectly create a powerful pod.
 
-Use a single active reconciliation leader initially, with database-enforced
+Use a single control-plane instance initially, with database-enforced
 idempotency and transactions. Readiness checks cover persistence, backend API,
 profile availability and required policy/storage configuration. A missing backend
 makes capabilities unavailable; it must not fall back to local execution.
 
-A periodic janitor reconciles abandoned runs, expired inputs, run Secrets, PVCs,
-underlying volume cleanup and owned Tekton resources. Final tasks are best effort,
-not the only cleanup mechanism after controller crashes or forced deletion.
-Keep audit/results before pruning engine objects. Track admission-to-start and
-end-to-end latency, failures, cancellation lag, queue depth, cleanup backlog and
-resource use without URLs, prompts or arbitrary caller IDs in metric labels.
+Implement normal completion/cancellation cleanup for temporary inputs, run Secrets,
+PVCs and owned Tekton resources. Keep audit/results before pruning engine objects.
+Document manual cleanup for interrupted runs initially; an automatic orphan janitor
+and restart reconciliation are follow-on work. Basic status and failure diagnostics
+are sufficient; performance dashboards and latency targets are deferred.
 
-## Adoption gate and future scope
+## Implementation scope and follow-on work
 
-Adopt Tekton only when the spike demonstrates the boundary tests in the plan,
-restart/cancellation behavior, acceptable measured cluster footprint, and the
-webfetch budget under representative cold and warm starts. Record versions,
-node architecture, storage backend, p50/p95 and failures; do not infer performance
-from a laptop or fake executor. Confirm all worker and Tekton images support the
-actual target nodes or select an explicit compatible node pool.
+Proceed with Tekton and validate the fixed Git profile, artifact boundaries and
+result handling through ordinary integration tests. Confirm images support the
+actual target nodes or select a compatible node pool. No recovery trial, benchmark
+campaign or performance threshold blocks implementation.
 
-If the gate fails, retain the domain contracts and use fixed Kubernetes Jobs;
-record precisely which orchestration code is then necessary. The goal is less
-custom infrastructure overall, not using an engine at any cost.
+Defer automatic restart recovery, dispatch outboxes, publication reconciliation,
+failover and latency tuning. Interrupted or ambiguous work can require operator
+inspection and a fresh invocation. Revisit those capabilities when practical use
+shows they are worth the complexity.
 
 n8n remains a follow-on when there is a named automation to ship. Its identity
 must be scoped to authorized capabilities and destinations. Repeated workflow
