@@ -108,7 +108,7 @@ Report back in this shape, as plain text:
 |---|---|---|
 | G1 | Has the I1 branch merged, and is the `hearthai` release Ready with no new objects and an unchanged model list? | H1 |
 | G2 | Is `SECRET_LOCAL_LLM_HOST` populated in `cluster-secrets`, and is the laptop set up per the plan (Ollama exposed, stable address, context 32768)? | H1 merge |
-| G3 | After H1: does the persona answer with the laptop awake, and fail in about 3 s with the fixed message when it is asleep? | everything after M1 |
+| G3 | After H1: does the persona answer with the laptop awake **and the status tile show up**, and does it fail in about 3 s with the fixed message, tile down, when the laptop is asleep? | everything after M1 |
 | G4 | Does the LiteLLM admin UI show any model that exists only in the database? Which? | P4 |
 | G5 | Is the spec approved? (asked once per spec) | packages derived from it |
 
@@ -123,7 +123,10 @@ Status values: `todo`, `running`, `review`, `ready for owner`, `merged`, `blocke
 | V3 | Confirm Meridian does not run built-in tools | hearthai (read-only) | executor | none | — | todo |
 | P1a | Local lane entries and privacy tests | hearthai | executor | `plan/i1-local-lane` | V2 | todo |
 | P1b | Gate, its network policy, docs | hearthai | executor | continues `plan/i1-local-lane` | P1a | todo |
+| P1c | Gate behaviour test | hearthai | executor | continues `plan/i1-local-lane` | P1b | todo |
+| P1d | Runtime lane test and surface lane test | hearthai | executor | continues `plan/i1-local-lane` | P1b, V2 | todo |
 | H1 | Enable the lane and add the status probe | home-ops | executor | `plan/h1-local-lane` | G1 | todo |
+| H9 | Pin the hearthai source and automate the bump | home-ops | executor | `plan/h9-pin-hearthai` | G3 | todo |
 | P3 | Open WebUI deny table and drift check | hearthai | executor | `plan/i3-deny-table` | V1, V3, G3 | todo |
 | P4 | Catalogue in the chart only | hearthai | executor | `plan/i4-catalogue` | G3, G4 | todo |
 | P7 | Coding-agent runbook and context check | hearthai | executor | `plan/i7-coding-agents` | G3, V2 | todo |
@@ -132,8 +135,9 @@ Status values: `todo`, `running`, `review`, `ready for owner`, `merged`, `blocke
 | S2 | Spec: personas at the gateway (plan I11) | hearthai | orchestrator | `plan/spec-personas` | S1 merged | todo |
 | S3 | Spec: executor, memory tools, lane gate (plan M6) | hearthai | orchestrator | `plan/spec-ai-jobs` | G3 | todo |
 
-V1 to V3 can run in parallel. P1a and P1b are sequential on one branch and merge as one pull
-request. After G3, P3, P4, P7, H7 and the specs are independent of each other.
+V1 to V3 can run in parallel. P1a to P1d are sequential on one branch and merge as one pull
+request; do not open it until P1c and P1d pass, because they are the only evidence for what the
+gate and the lane do at runtime. P1c and P1d can run in parallel with each other. After G3, P3, P4, P7, H7 and the specs are independent of each other.
 
 The plan's I2 persona, I9 and I10 are owner steps with no package. Remind the owner of them when
 their milestone is reached.
@@ -275,8 +279,15 @@ and returns one fixed error. It is also the only place the laptop's address exis
 - The upstream URL must appear only in the Deployment's environment. Not in the ConfigMap.
 - Pod settings to match the other workloads: no service-account token, non-root, all capabilities
   dropped, read-only root filesystem if the image allows it (say if it does not).
-- A `CiliumNetworkPolicy` like Meridian's: ingress from this release's LiteLLM pods and node probes
-  only. Reuse the `meridian.networkPolicy` pattern, including a switch to disable it.
+- A `CiliumNetworkPolicy` like Meridian's: ingress from this release's LiteLLM pods and node
+  probes, plus whatever is listed in `localInference.gate.networkPolicy.additionalIngress`. That
+  value is a list of entries with a `namespace` and `matchLabels`, default empty; each becomes one
+  `fromEndpoints` selector scoped to that namespace. The owner's status-page prober runs in another
+  namespace and must be admitted this way, or its tile reads down while the laptop is serving.
+  Reuse the `meridian.networkPolicy` pattern, including a switch to disable the policy.
+- A response-header timeout, `localInference.gate.responseHeaderTimeout`, default `180s`, so an
+  upstream that accepts a connection and never answers is bounded. Do not set it lower by default:
+  a cold 32k prompt was measured at about 50 seconds before the first byte.
 - Add the gate image to the Renovate custom manager's coverage if its existing pattern does not
   already match.
 - `deploy/README.md`: a "Local lane" section. Take the content from the plan's "What private
@@ -286,8 +297,9 @@ and returns one fixed error. It is also the only place the laptop's address exis
 
 **Tests to add:** disabled renders no gate objects; enabled renders exactly one Deployment, Service,
 ConfigMap and policy for the gate; the upstream URL string is absent from every ConfigMap; the gate
-pod mounts no Secret and has `automountServiceAccountToken: false`; the policy's only endpoint
-ingress selector is this release's LiteLLM labels. Update `test_cohesive_release_and_oidc` only if
+pod mounts no Secret and has `automountServiceAccountToken: false`; with `additionalIngress` empty
+the policy's only endpoint ingress selector is this release's LiteLLM labels; with one entry
+supplied the policy has exactly that one more selector, scoped to the entry's namespace. Update `test_cohesive_release_and_oidc` only if
 its Deployment count now depends on the option, and keep its default-values assertion.
 
 **Files:** new `templates/local-gate.yaml`; `values.yaml`, `values.schema.json`, `templates/NOTES.txt`,
@@ -301,6 +313,79 @@ helm template hearthai deploy/charts/hearthai -f deploy/examples/hearthai-values
 ```
 
 against the same command on `main`. The only differences allowed are none.
+
+### P1c. Gate behaviour test
+
+**Why:** P1b's tests show the gate's configuration renders. They cannot show what the proxy does
+when the laptop disappears, and that behaviour is the user-visible half of the feature. A dial
+timeout does not bound an upstream that accepts and then hangs, and an active probe lags an outage.
+This package proves the behaviour with the real image, or finds out that stock Caddy cannot do it.
+
+**Do:** under `deploy/tests/gate/`, a test that renders the chart with the lane enabled, extracts
+the gate's configuration, runs the pinned Caddy image with it, and drives it against scripted fake
+upstreams. Use only Python's standard library for the fakes. Assert each row, with wall-clock
+bounds:
+
+| Upstream | Required result |
+|---|---|
+| Connection refused | `503`, the exact JSON body from P1b, `Content-Type: application/json`, under 1 s |
+| SYN blackholed (packets dropped, no reset) | same response, within the dial timeout plus 1 s |
+| Accepts, never answers | same response, within the response-header timeout (render it short for the test) |
+| Marked down by the active probe | same response immediately, without a dial |
+| Sends headers and chunks, then drops | the client sees the stream fail promptly and detectably. A `503` cannot be sent after bytes have gone out; assert the truncation, do not pretend otherwise |
+| Silent for longer than the probe interval and the dial timeout, then streams for at least two minutes | delivered complete, unbuffered, chunk timing preserved |
+| Healthy, gone, healthy again | new requests fail within one probe interval and recover within one |
+
+Make the blackhole case deterministic. A route that happens to be unreachable on one CI runner is
+not good enough; drop the packets explicitly in a network namespace or container network you
+control, and say how you did it. Add the test as a job in `.github/workflows/ci.yaml`. Note in
+`deploy/README.md` the two cases where the fixed message is not what the user sees.
+
+**If a row cannot be met with stock Caddy and configuration alone, stop.** Report which row, what
+Caddy does instead, and what you tried. Do not add a plugin, a custom build or a wrapper script.
+The fallback is a purpose-built proxy and that is the owner's decision.
+
+**Files:** new `deploy/tests/gate/`; `.github/workflows/ci.yaml`; `deploy/README.md`; and
+`templates/local-gate.yaml` only to fix a behaviour the test exposes.
+
+**Acceptance:** the new test passes locally with the pinned image, and you include its full output.
+If you cannot run containers, the package is not done; say so.
+
+### P1d. Runtime lane test and surface lane test
+
+**Why:** P1a asserts that the rendered config has no fallback, alias or wildcard keys. That is
+worth keeping but it is not proof of where a request goes, and it will mean less once a routing
+hook and personas are added. The owner wants the property itself tested: a request for a local
+model, with the laptop down, reaches no cloud provider. Later packages (the router and personas)
+must extend these tests, so build them to be extended.
+
+**Do, part one, the gateway:** under `deploy/tests/lane/`, a test that starts the LiteLLM image at
+the version home-ops runs with the chart-rendered config, on a container network with no outside
+egress. The local upstream is down. Every cloud route is pointed at, or can only reach, a
+recording stand-in. Use V2's answers for how to redirect each provider; if a provider's address
+cannot be redirected, the closed network plus the attempt log below is the evidence, and say so.
+For each local model name, send a request through `/v1/chat/completions`, `/v1/responses` and
+`/v1/messages`, streaming and not. Assert: the response is the gate's `503`; the recorders
+received zero requests; and LiteLLM attempted no deployment other than the local one. Take the
+last from a logging callback that records every attempted deployment, not from the absence of
+errors. Structure it so a later package can load a hook module and a persona table and rerun the
+same assertions for more model names.
+
+**Do, part two, the surface:** under `deploy/tests/surface/`, a test that runs the pinned Open
+WebUI image with the chart-rendered environment in local-auth mode against a recording fake
+gateway that lists one local and one cloud model. Through Open WebUI's API, hold a short chat on
+the local model and wait for background tasks to finish. Assert every request the fake gateway
+received for that chat, including title, tag and follow-up generation, named the local model.
+
+**CI:** part one runs on every chart change. Part two is heavy; run it on changes to the Open WebUI
+tag or its ConfigMap template and on a weekly schedule.
+
+**Files:** new `deploy/tests/lane/`, new `deploy/tests/surface/`, `.github/workflows/ci.yaml`,
+`deploy/README.md` (one paragraph on what each test shows and does not).
+
+**Acceptance:** both tests pass locally and you include their output. Then show each can fail: add
+a fallback from a local name to a cloud name in a scratch copy of the config and show part one
+fails; set a task model in a scratch environment and show part two fails. Revert both.
 
 ### H1. Enable the lane in home-ops
 
@@ -316,6 +401,12 @@ rules on addresses, secrets and cutover order apply to every line you write.
   Add a comment in the file's existing style saying: the address is the only site input; the
   `.invalid` default makes the lane fail closed until the owner sets the variable; the lane must
   never be given a fallback.
+- In the same block, admit the status-page prober through the gate's policy:
+  `localInference.gate.networkPolicy.additionalIngress` with one entry for the Gatus pods. Gatus
+  runs in the `observability` namespace; read its pod labels from
+  `kubernetes/apps/observability/gatus/app/helmrelease.yaml` and the chart it uses, and use the
+  narrowest label set that selects only those pods. Without this the probe below is denied and
+  the tile stays down.
 - `kubernetes/apps/ai/hearthai/app/gatus.yaml`: one more endpoint, `local-inference`, group
   `internal`, probing `http://hearthai-local.ai.svc.cluster.local:11434/api/version` every minute
   for status 200. No alerting: the laptop being asleep is normal. Say so in a comment.
@@ -338,7 +429,43 @@ Also confirm by search that the diff contains no IP address and no hostname othe
 `local-llm.invalid` and the in-cluster Service name.
 
 **Report additionally:** the Service name assumes release name `hearthai`; confirm it from the
-chart's helper. State that this must not merge before gates G1 and G2.
+chart's helper. Give the Gatus labels you selected and where you read them. State that this must
+not merge before gates G1 and G2, and that the owner's check after merge includes the tile being
+**up** with the laptop awake, which is the only evidence the policy admits the prober.
+
+### H9. Pin the hearthai source and automate the bump
+
+**Why:** home-ops deploys whatever lands on hearthai `main`. Once the chart carries security
+settings, that should be a reviewed step. But a pin with no update path is worse than floating:
+the deployment silently stays on an old chart while fixes land upstream. So the pin and its update
+mechanism ship together or not at all.
+
+**Do:**
+
+- `kubernetes/flux/repositories/git/hearthai.yaml`: replace `ref.branch: main` with `ref.commit`
+  set to the current head of hearthai `main`. Rewrite the header comment, which describes the
+  source as floating.
+- `.github/renovate.json5`: make Renovate propose a pull request when hearthai `main` moves.
+  First check whether the existing `flux` manager already updates a `GitRepository` commit pin; the
+  `mindroom` source in the same directory is pinned the same way, so look at whether it has ever
+  received a Renovate pull request. If the manager does not cover it, add an annotated pin using
+  the repository's existing `# renovate:` comment convention and the `git-refs` datasource tracking
+  `main`. Group and schedule it weekly so each hearthai commit is not its own pull request, and do
+  not automerge it.
+- `kubernetes/apps/ai/hearthai/README.md` ("Upgrading") and the comments in
+  `kubernetes/apps/ai/hearthai/app/helmrelease.yaml` that say the chart floats or that a push to
+  hearthai deploys: rewrite to describe the pinned flow, including the review step (read the
+  hearthai diff under `deploy/`, `flate` passes, merge) and how to bump by hand the same day for an
+  urgent fix.
+
+**Files:** those four.
+
+**Acceptance:** `task k8s:flate`, `yamllint kubernetes/flux/repositories kubernetes/apps/ai/hearthai`,
+and Renovate's config validator on `.github/renovate.json5`. Search the repository for "float" and
+"main" near "hearthai" and confirm no stale description remains.
+
+**Report additionally:** whether Renovate will actually pick the pin up is only shown by its next
+run. Say that plainly and tell the owner what to look for.
 
 ### P3. Open WebUI deny table and drift check
 
@@ -450,14 +577,17 @@ icon is not lost. One comment explaining the reason.
 ## Specs the orchestrator writes
 
 **S1, automatic router.** Brief: the plan's Milestone 3. The fail-closed table there is the
-contract and becomes the unit tests. Settle in the spec: the rule set and where the term list comes
+contract and becomes the unit tests. The spec must also require extending P1d's runtime lane test
+with the hook loaded: every local name, and `auto` in every fail-closed row, with zero recorded
+cloud calls. No router package merges without it. Settle in the spec: the rule set and where the term list comes
 from; the classifier prompt and its exact accepted answer; how the hook reaches the local model
 without going back through itself; what is logged; how shadow mode is switched. Then packages for
 the module and its tests, the chart mount, the `auto` entry, the home-ops Secret, and the runbook.
 
 **S2, personas at the gateway.** Brief: plan I11 and O5. Depends on S1's hook existing. Settle the
 values shape, how the prompt is injected for each of the three request formats, and the test that a
-persona cannot leave its declared lane.
+persona cannot leave its declared lane, which is P1d's runtime lane test rerun with the persona
+table loaded and the laptop down.
 
 **S3, executor and first tools.** Brief: plan Milestone 6, the existing `service/ai_jobs` contracts
 and `ARCHITECTURE.md` "Execution substrate". Settle the executor's Kubernetes interface, the

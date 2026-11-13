@@ -49,9 +49,9 @@ Leak paths this plan closes, each with a test or an owner check:
 
 | Path | Closed by |
 |---|---|
-| LiteLLM fallback, alias or load-balancing onto a cloud deployment | I1 chart tests: one deployment per local name, no fallback or alias keys, no wildcard routes |
+| LiteLLM fallback, alias or load-balancing onto a cloud deployment | I1 chart tests (one deployment per local name, no fallback or alias keys, no wildcard routes) and the I1 runtime lane test, which I5 and I11 must extend |
 | A cloud deployment added under the same name through the LiteLLM admin UI | I4: `store_model_in_db` off, so the catalogue is the chart file only |
-| Open WebUI title, tag, follow-up and autocomplete generation sent to a separate "task model" | I1 test: `TASK_MODEL` and `TASK_MODEL_EXTERNAL` stay empty, so tasks use the chat's own model |
+| Open WebUI title, tag, follow-up and autocomplete generation sent to a separate "task model" | I1 test: `TASK_MODEL` and `TASK_MODEL_EXTERNAL` stay empty, so tasks use the chat's own model; I1 surface lane test observes it |
 | Open WebUI arena model (answers from a randomly chosen model) | I3: disabled |
 | Open WebUI memory written in a private chat and injected into a later cloud chat | I2 owner step: memory capability off on private personas; O6 |
 | A coding CLI's background model (titles, summaries) defaulting to a cloud name | I7: local-only virtual key; the gateway refuses any other model for that key |
@@ -103,7 +103,10 @@ decision; the plan only records that it is open.
 
 **Detecting that the laptop is gone.** The gate probes `GET /api/version` (does not load the model)
 every 10 s with a 2 s timeout, and dials with a 3 s timeout. An outage is noticed within about 12 s;
-a request inside that window fails in 3 s. Recovery is noticed within 10 s. LiteLLM's own background
+a request inside that window fails in 3 s if the host is unreachable. Two cases are slower and are
+stated rather than hidden: a host that accepts the connection and then says nothing is bounded
+only by the response-header timeout, and a stream that has already started can only be cut, not
+replaced by the fixed message. Recovery is noticed within 10 s. LiteLLM's own background
 health check is disabled for the local model: it works by sending a real completion, which would
 load 22 GB into memory every five minutes.
 
@@ -137,9 +140,17 @@ rolls nothing while `localInference.enabled` is false.
   Caddy image with a short Caddyfile: reverse proxy to the upstream, 3 s dial timeout, active health
   check on `/api/version`, streaming unbuffered, and every upstream failure mapped to one `503` JSON
   body: *"Local model unavailable: the laptop is off, asleep or off the network. This model never
-  falls back to another provider."* No custom code.
+  falls back to another provider."* No custom code. The fixed body is promised only before the
+  first response byte; see the behaviour test below for what happens after.
 - [ ] Gate network policy, same pattern as Meridian: ingress from this release's LiteLLM pods and
-  node probes only. The gate mounts no Secret and no service-account token.
+  node probes, plus the entries of `localInference.gate.networkPolicy.additionalIngress`, a list of
+  namespace-and-label endpoint selectors that defaults to empty. home-ops uses it to admit its
+  status-page prober, which runs in another namespace and would otherwise be denied, leaving the
+  tile down while the laptop is serving. Nothing else is admitted. The gate mounts no Secret and no
+  service-account token.
+- [ ] Bound a connected-but-silent upstream with a response-header timeout
+  (`localInference.gate.responseHeaderTimeout`, default 180 s). It has to be generous: a cold 32k
+  prompt was measured at about 50 s before the first byte.
 - [ ] When enabled, append one LiteLLM entry per model: `ollama_chat/<ollamaModel>`, `api_base` the
   gate Service, `max_input_tokens` from `contextWindow`, `supports_function_calling: true`,
   `disable_background_health_check: true`. The bundled catalogue file stays byte-identical; the
@@ -158,6 +169,42 @@ rolls nothing while `localInference.enabled` is false.
   `MERIDIAN_API_KEY` (priority 2: subscriptions only).
 - [ ] The Open WebUI ConfigMap has no non-empty `TASK_MODEL` or `TASK_MODEL_EXTERNAL`.
 - [ ] The upstream URL appears only in the gate's environment, not in any ConfigMap.
+
+**Gate behaviour test (executable, in CI).** Rendered YAML cannot show what the proxy does, so
+`deploy/tests/gate/` runs the pinned Caddy image with the chart-rendered configuration against
+scripted fake upstreams and asserts, with wall-clock bounds:
+
+| Upstream | Required result |
+|---|---|
+| Connection refused | `503`, the exact JSON body, `Content-Type: application/json`, in under 1 s |
+| SYN blackholed (packets dropped, no reset) | same response, within the dial timeout plus 1 s |
+| Accepts the connection, never answers | same response, within the response-header timeout (the test sets it short) |
+| Marked down by the active probe | same response immediately, without dialling |
+| Sends headers and some chunks, then drops | the client sees the stream end with an error promptly. A `503` is impossible once bytes are sent; the test asserts the truncation is detectable, and the README says so |
+| Silent for longer than the probe interval and the dial timeout, then streams for minutes | delivered complete and unbuffered, chunk timing preserved |
+| Healthy, then gone, then healthy | new requests fail within the probe interval and recover within it |
+
+If stock Caddy cannot meet a row, that is a finding to bring back, not something to paper over:
+the fallback is a small purpose-built proxy, and that is a decision for the owner.
+
+**Runtime lane test (executable, in CI).** The negative config assertions above stay, but absence
+of fallback keys is not proof of where a request goes, and it stops being even a good proxy once
+hooks and personas exist. `deploy/tests/lane/` starts the pinned LiteLLM image with the
+chart-rendered config, a local upstream that is down, and recording stand-ins for every cloud
+route, on a network with no other egress. It requests each local model name through Chat
+Completions, Responses and Anthropic Messages and asserts: the answer is the gate's `503`; the
+recorders received zero requests; and LiteLLM attempted no deployment other than the local one
+(read from a logging callback, not inferred). I5 and I11 must extend this same test with the hook
+and the persona table loaded, and cannot merge without it: a persona on the local lane, and `auto`
+in every fail-closed row, with zero recorded cloud calls.
+
+**Surface lane test (executable, scheduled and on Open WebUI bumps).** Open WebUI's key can reach
+cloud models, so the gateway cannot tell a background request addressed to a cloud model from a
+legitimate one. That has to be shown at the source. `deploy/tests/surface/` runs the pinned Open
+WebUI image with the chart-rendered environment against a recording fake gateway, holds one chat
+on a local model, and asserts that every request Open WebUI emitted for that chat, including
+title, tag and follow-up generation, named that same model. This is the test that would catch an
+upstream change to task-model defaults.
 
 **Owner check once live:** the release reconciles and nothing restarted except by checksum. No new
 model in the picker. That is the expected result.
@@ -184,7 +231,9 @@ model in the picker. That is the expected result.
 **Owner checks once live:**
 
 - [ ] Laptop awake: the persona answers; `ollama ps` on the laptop shows the model loaded; LiteLLM's
-  request log shows `local-qwen` and no other model for that chat, including its title request.
+  request log shows `local-qwen` and no other model for that chat, including its title request;
+  **the status-page tile is up** (this is the check that the prober is admitted by the gate's
+  policy, which the down state cannot show).
 - [ ] Laptop asleep or off the network: the persona is still in the picker; a message fails within
   about 3 s with the fixed text; the status page shows the local-inference tile down; no request for
   any other model appears in LiteLLM's log.
@@ -315,6 +364,8 @@ routes by similarity, which is not fail-closed.
 
 - [ ] `auto` always resolves to `local-qwen` or refuses. The hook logs the decision it *would* have
   made, as a reason code with no content.
+- [ ] Extend the I1 runtime lane test: with the hook loaded, every local model name and every
+  fail-closed row for `auto` produces zero recorded cloud calls. Required to merge.
 - [ ] Unit tests for every row of the fail-closed table, against Chat Completions, Responses and
   Anthropic Messages request shapes.
 - [ ] Chart test: `auto` is not in `localInference.models`, and no key metadata or alias maps a
@@ -405,7 +456,8 @@ the home-ops n8n notes.
 
 - [ ] `personas[]` in values: `name`, `lane`, `prompt`. The hook prepends the prompt and sets the
   target to the lane. A persona on `local-qwen` gets the lane's guarantee; the hook cannot route a
-  persona anywhere but its declared lane (test).
+  persona anywhere but its declared lane (unit test, and the I1 runtime lane test extended with the
+  persona table loaded and the laptop down: zero recorded cloud calls. Required to merge).
 - [ ] Open WebUI presets created in I2 are retired by hand once their gateway equivalents work.
 
 This changes where a persona is defined (O5). Until it ships, Mindroom and n8n repeat the prompt
@@ -484,7 +536,7 @@ The companion document gives the concrete sequence for I2, I4, I5 and I12.
 | O6 | Open WebUI personal memory and private personas. | Off for private personas now. A memory written from a private chat is injected into later chats on any model. Revisit with I14. |
 | O7 | How does a person approve a shared write from Open WebUI? | An approval page served by `ai-jobs` behind the existing identity provider, linked from the tool result. A second model-callable "confirm" tool is not approval. |
 | O8 | Should `auto` be offered to Mindroom and n8n? | Not until I6 has run for a month in Open WebUI. |
-| O9 | Pin home-ops to a hearthai commit instead of floating on `main`? | Pin once M1 is live. From M2 on, chart merges change security settings and should not deploy unreviewed. |
+| O9 | Pin home-ops to a hearthai commit instead of floating on `main`? | Pin once M1 is live, but only together with an automated update path (a Renovate pull request for the pin, reviewed before merge); a pin with no update path strands the deployment on old versions. The companion gives the mechanism. The better end state is a tagged chart release consumed as an OCI source with a version range. |
 | O10 | A persona's prompt may itself be private. Keep it out of Git? | If it matters, define that persona as an Ollama Modelfile on the laptop and list the resulting model under `localInference.models`. The prompt then never leaves the laptop's disk. |
 
 ## Verify before relying on it
