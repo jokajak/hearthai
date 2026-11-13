@@ -212,6 +212,55 @@
               }
             }
           }
+        },
+        "gate": {
+          "type": "object",
+          "description": "The proxy in front of the local host.",
+          "properties": {
+            "image": {
+              "type": "string",
+              "minLength": 1
+            },
+            "responseHeaderTimeout": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(ms|s|m|h)$",
+              "description": "Go duration, for example 180s."
+            },
+            "networkPolicy": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "additionalIngress": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "namespace",
+                      "matchLabels"
+                    ],
+                    "properties": {
+                      "namespace": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "matchLabels": {
+                        "type": "object",
+                        "minProperties": 1,
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "resources": {
+              "type": "object"
+            }
+          }
         }
       }
     }

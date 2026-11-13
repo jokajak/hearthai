@@ -1,4 +1,5 @@
 """Deployment contracts, tested on rendered Kubernetes objects."""
+import json
 import os
 import hashlib
 from pathlib import Path
@@ -436,3 +437,172 @@ def test_task_models_unset_in_open_webui(opts):
 def test_litellm_args_have_no_model_override(opts):
     args = proxy(render(*opts))['spec']['template']['spec']['containers'][0]['args']
     assert not [a for a in args if a == '--model' or a.startswith('--model=')]
+
+
+# ---------------------------------------------------------------------------
+# Local gate: Caddy in front of the local host.
+# ---------------------------------------------------------------------------
+
+GATE_URL = 'http://laptop.example.internal:11434'
+GATE_OPTS = ['--set', 'localInference.enabled=true', '--set', f'localInference.upstreamUrl={GATE_URL}']
+GATE_BODY = ('{"error":{"type":"local_unavailable","message":"Local model unavailable: the laptop is off, '
+             'asleep or off the network. This model never falls back to another provider."}}')
+GATE_NAME = 'household-hearthai-local'
+
+
+def gate_objects(docs):
+    return [d for d in docs if d['metadata']['name'] == GATE_NAME]
+
+
+def gate_of(docs, kind):
+    found = [d for d in gate_objects(docs) if d['kind'] == kind]
+    assert len(found) == 1
+    return found[0]
+
+
+def test_gate_absent_by_default():
+    docs = render()
+    assert gate_objects(docs) == []
+    assert not any(d['kind'] == 'CiliumNetworkPolicy' and d['metadata']['name'].endswith('-local') for d in docs)
+
+
+def test_gate_renders_one_of_each_when_enabled():
+    docs = render(*GATE_OPTS)
+    assert sorted(d['kind'] for d in gate_objects(docs)) == ['CiliumNetworkPolicy', 'ConfigMap', 'Deployment', 'Service']
+    # The LiteLLM entry points at the Service this template creates.
+    cfg = litellm_config(docs)
+    local = [m for m in cfg['model_list'] if m['model_name'] == 'local-qwen']
+    assert local[0]['litellm_params']['api_base'] == f'http://{GATE_NAME}:11434'
+
+
+def test_gate_upstream_url_only_in_deployment_env():
+    docs = render(*GATE_OPTS)
+    for d in docs:
+        text = yaml.safe_dump(d)
+        if d['kind'] == 'Deployment' and d['metadata']['name'] == GATE_NAME:
+            env = d['spec']['template']['spec']['containers'][0]['env']
+            assert [e for e in env if e['value'] == GATE_URL] == [e for e in env if e['name'] == 'LOCAL_UPSTREAM_URL']
+            stripped = yaml.safe_dump({k: v for k, v in d.items() if k != 'spec'})
+            assert 'laptop.example.internal' not in stripped
+            assert 'laptop.example.internal' not in yaml.safe_dump(d['spec']['template']['metadata'])
+            assert text.count('laptop.example.internal') == 1
+        else:
+            assert 'laptop.example.internal' not in text, d['kind'] + '/' + d['metadata']['name']
+
+
+def test_gate_pod_has_no_secrets_or_token():
+    pod = gate_of(render(*GATE_OPTS), 'Deployment')['spec']['template']['spec']
+    assert pod['automountServiceAccountToken'] is False
+    assert not any('secret' in v for v in pod.get('volumes', []))
+    assert not any('projected' in v for v in pod.get('volumes', []))
+    container = pod['containers'][0]
+    assert 'envFrom' not in container
+    assert not any('valueFrom' in e for e in container['env'])
+    assert pod['securityContext']['runAsNonRoot'] is True
+    assert pod['securityContext']['seccompProfile']['type'] == 'RuntimeDefault'
+    sc = container['securityContext']
+    assert sc['allowPrivilegeEscalation'] is False
+    assert sc['readOnlyRootFilesystem'] is True
+    assert sc['capabilities']['drop'] == ['ALL']
+
+
+def test_gate_service_selects_gate_pods_on_11434():
+    docs = render(*GATE_OPTS)
+    dep = gate_of(docs, 'Deployment')
+    svc = gate_of(docs, 'Service')
+    assert svc['spec']['selector'] == dep['spec']['selector']['matchLabels']
+    assert svc['spec']['selector'].items() <= dep['spec']['template']['metadata']['labels'].items()
+    port = svc['spec']['ports'][0]
+    assert port['port'] == 11434
+    container_ports = {p['name']: p['containerPort'] for p in dep['spec']['template']['spec']['containers'][0]['ports']}
+    assert container_ports[port['targetPort']] == 11434
+    # No other workload's Service selects the gate pods.
+    assert [s for s in docs if s['kind'] == 'Service' and s['spec']['selector'] == svc['spec']['selector']] == [svc]
+
+
+def test_gate_probes_do_not_depend_on_the_laptop():
+    container = gate_of(render(*GATE_OPTS), 'Deployment')['spec']['template']['spec']['containers'][0]
+    for probe in ('livenessProbe', 'readinessProbe'):
+        assert container[probe]['httpGet']['path'] == '/_gate/healthz'
+    caddyfile = gate_of(render(*GATE_OPTS), 'ConfigMap')['data']['Caddyfile']
+    assert 'handle /_gate/healthz' in caddyfile
+    assert caddyfile.index('handle /_gate/healthz') < caddyfile.index('reverse_proxy')
+
+
+def policy_sources(docs):
+    policy = gate_of(docs, 'CiliumNetworkPolicy')
+    assert len(policy['spec']['ingress']) == 2
+    for rule in policy['spec']['ingress']:
+        assert rule['toPorts'] == [{'ports': [{'port': '11434', 'protocol': 'TCP'}]}]
+    assert policy['spec']['ingress'][1]['fromEntities'] == ['host', 'remote-node']
+    return policy['spec']['ingress'][0]['fromEndpoints']
+
+
+def test_gate_policy_admits_only_litellm_by_default():
+    docs = render(*GATE_OPTS)
+    sources = policy_sources(docs)
+    assert sources == [{'matchLabels': {
+        'app.kubernetes.io/name': 'litellm',
+        'app.kubernetes.io/instance': 'household',
+        'k8s:io.kubernetes.pod.namespace': 'ai',
+    }}]
+    policy = gate_of(docs, 'CiliumNetworkPolicy')
+    dep = gate_of(docs, 'Deployment')
+    assert policy['spec']['endpointSelector']['matchLabels'] == dep['spec']['selector']['matchLabels']
+
+
+def test_gate_policy_additional_ingress_adds_exactly_one_scoped_selector():
+    docs = render(*GATE_OPTS, '--set-json',
+                  'localInference.gate.networkPolicy.additionalIngress=[{"namespace":"monitoring","matchLabels":{"app.kubernetes.io/name":"prober"}}]')
+    sources = policy_sources(docs)
+    assert len(sources) == 2
+    assert sources[1] == {'matchLabels': {
+        'app.kubernetes.io/name': 'prober',
+        'k8s:io.kubernetes.pod.namespace': 'monitoring',
+    }}
+
+
+def test_gate_policy_can_be_disabled():
+    docs = render(*GATE_OPTS, '--set', 'localInference.gate.networkPolicy.enabled=false')
+    assert sorted(d['kind'] for d in gate_objects(docs)) == ['ConfigMap', 'Deployment', 'Service']
+    assert not any(d['kind'] == 'CiliumNetworkPolicy' and d['metadata']['name'] == GATE_NAME for d in docs)
+
+
+def caddy_error_body(caddyfile):
+    start = caddyfile.index('respond `') + len('respond `')
+    end = caddyfile.index('` 503', start)
+    return caddyfile[start:end]
+
+
+def test_gate_config_contains_the_contract():
+    caddyfile = gate_of(render(*GATE_OPTS), 'ConfigMap')['data']['Caddyfile']
+    assert json.loads(caddy_error_body(caddyfile)) == json.loads(GATE_BODY)
+    assert caddy_error_body(caddyfile) == GATE_BODY
+    lines = [line.strip() for line in caddyfile.splitlines()]
+    for expected in ('dial_timeout 3s', 'response_header_timeout 180s', 'health_uri /api/version',
+                     'health_interval 10s', 'health_timeout 2s', 'flush_interval -1',
+                     'header Content-Type application/json', 'admin off', 'auto_https off',
+                     'reverse_proxy {$LOCAL_UPSTREAM_URL} {', ':11434 {'):
+        assert expected in lines, expected
+    assert 'handle_errors {' in lines
+
+
+def test_gate_response_header_timeout_comes_from_values():
+    caddyfile = gate_of(render(*GATE_OPTS, '--set', 'localInference.gate.responseHeaderTimeout=240s'),
+                        'ConfigMap')['data']['Caddyfile']
+    assert 'response_header_timeout 240s' in caddyfile
+    assert '180s' not in caddyfile
+    render(*GATE_OPTS, '--set', 'localInference.gate.responseHeaderTimeout=soon', success=False)
+
+
+def test_gate_config_change_rolls_the_pod():
+    def checksum(*opts):
+        return gate_of(render(*GATE_OPTS, *opts), 'Deployment')['spec']['template']['metadata']['annotations']['checksum/config']
+    assert checksum() != checksum('--set', 'localInference.gate.responseHeaderTimeout=240s')
+    assert checksum() == checksum()
+
+
+def test_gate_image_is_fully_qualified_for_renovate():
+    image = gate_of(render(*GATE_OPTS), 'Deployment')['spec']['template']['spec']['containers'][0]['image']
+    assert image == yaml.safe_load((CHART / 'values.yaml').read_text())['localInference']['gate']['image']
+    assert image.startswith('docker.io/library/caddy:')

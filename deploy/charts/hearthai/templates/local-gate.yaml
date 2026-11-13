@@ -1,0 +1,142 @@
+{{- if .Values.localInference.enabled }}
+{{- $gate := .Values.localInference.gate }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hearthai.fullname" . }}-local
+  labels:
+    {{- include "hearthai.localGate.labels" . | nindent 4 }}
+data:
+  # The upstream address is deliberately not here: {$LOCAL_UPSTREAM_URL} is
+  # substituted by Caddy at load time from the pod's environment.
+  Caddyfile: |
+    {{- include "hearthai.localGate.caddyfile" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hearthai.fullname" . }}-local
+  labels:
+    {{- include "hearthai.localGate.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "hearthai.localGate.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hearthai.localGate.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "hearthai.localGate.caddyfile" . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gate
+          image: {{ $gate.image | quote }}
+          args: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+          env:
+            - name: LOCAL_UPSTREAM_URL
+              value: {{ required "localInference.enabled=true requires localInference.upstreamUrl" .Values.localInference.upstreamUrl | quote }}
+          ports:
+            - name: http
+              containerPort: 11434
+          livenessProbe:
+            httpGet:
+              path: /_gate/healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /_gate/healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $gate.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: data
+              mountPath: /data
+            - name: caddy-config
+              mountPath: /config
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "hearthai.fullname" . }}-local
+        - name: data
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: caddy-config
+          emptyDir:
+            sizeLimit: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hearthai.fullname" . }}-local
+  labels:
+    {{- include "hearthai.localGate.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "hearthai.localGate.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 11434
+      targetPort: http
+{{- if $gate.networkPolicy.enabled }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "hearthai.fullname" . }}-local
+  labels:
+    {{- include "hearthai.localGate.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "hearthai.localGate.selectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            {{- include "hearthai.litellm.selectorLabels" . | nindent 12 }}
+            k8s:io.kubernetes.pod.namespace: {{ .Release.Namespace }}
+        {{- range $gate.networkPolicy.additionalIngress }}
+        - matchLabels:
+            {{- toYaml .matchLabels | nindent 12 }}
+            k8s:io.kubernetes.pod.namespace: {{ .namespace | quote }}
+        {{- end }}
+      toPorts:
+        - ports:
+            - port: "11434"
+              protocol: TCP
+    - fromEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "11434"
+              protocol: TCP
+{{- end }}
+{{- end }}

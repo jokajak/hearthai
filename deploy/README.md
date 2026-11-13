@@ -264,6 +264,59 @@ packages the image without forking or relabeling it. The stock image runs as roo
 its chart drops capabilities and disables service-account token mounting, but does
 not claim the non-root/read-only-root hardening of the hearthmem image.
 
+## Local lane
+
+Optional and off by default (`localInference.enabled`). When enabled, each entry of
+`localInference.models` (default `local-qwen`) becomes one LiteLLM model name served only by an
+Ollama host on your network, through a small gate that the chart renders as
+`<release>-local`: a stock Caddy reverse proxy, no custom code. The gate is the only place the
+host address exists (`localInference.upstreamUrl`, set as an environment value on its Deployment;
+supply it from a substitution variable and never commit it).
+
+What "private" promises: requests go Open WebUI, LiteLLM, gate, Ollama, and never leave the
+household's machines. They are not confined to the laptop: conversations are stored in Open
+WebUI's database in the cluster, LiteLLM records token counts, and the request crosses the LAN as
+plain HTTP. No fallback, alias or load-balancing is ever configured for a local name, and the
+chart tests enforce it. LiteLLM still holds cloud credentials in the same process, so the
+guarantee is configuration pinned by tests, not network topology.
+
+<!-- owner decision pending: client-supplied fallbacks -->
+Residual: a caller whose key may use cloud models can name `fallbacks` in its own request body,
+and LiteLLM will honour it. Open WebUI does not send it, and keys restricted to local models
+cannot use a cloud fallback target.
+
+Gate settings: 3 s dial timeout; an active probe of `GET /api/version` every 10 s with a 2 s
+timeout (it does not load the model); responses are streamed without buffering; a connected
+upstream may stay silent for `localInference.gate.responseHeaderTimeout` (default `180s`; a cold
+32k prompt was measured at about 50 s before the first byte) before the request fails. Failures
+before any response byte (host gone, probe marks it down, silent upstream) answer `503` with
+exactly this body and `Content-Type: application/json`:
+
+```json
+{"error":{"type":"local_unavailable","message":"Local model unavailable: the laptop is off, asleep or off the network. This model never falls back to another provider."}}
+```
+
+A stream that has already started can only be cut, not replaced by that message. The chart tests
+check the rendered configuration, not the proxy's runtime behaviour.
+
+Practical limits of the laptop (measured on a 36 GB machine with a 35B model at 4-bit):
+
+- Advertised context is 32768. Larger prompts push the laptop into heavy swap; 64k loads but does
+  not fit beside ordinary desktop use.
+- One request at a time: chat and a coding agent queue behind each other.
+- A cold 20k-token prompt waits about 30 s before the first byte; an identical repeat is fast
+  because Ollama's prompt cache survives between requests.
+- Recommended Ollama settings: `OLLAMA_CONTEXT_LENGTH=32768`, `OLLAMA_NUM_PARALLEL=1`,
+  `OLLAMA_MAX_LOADED_MODELS=1`, default keep-alive. Ollama has no authentication; restricting who
+  can reach its port is a network decision for the owner.
+- LiteLLM's background health check is disabled for local models, because it sends a real
+  completion that would load the model every few minutes.
+
+The gate's `CiliumNetworkPolicy` admits this release's LiteLLM pods and node probes on port 11434
+only, plus `localInference.gate.networkPolicy.additionalIngress` (a list of `namespace` and
+`matchLabels` entries, default empty). Set `localInference.gate.networkPolicy.enabled=false` to
+omit it. The chart sets no egress policy, because the laptop's address is site-specific.
+
 ## Validate
 
 ```sh

@@ -40,3 +40,10 @@ meridian:
   existingSecret: meridian-secret
   persistence:
     existingClaim: meridian-auth
+
+# Optional local lane (off by default): serve named models from a machine on
+# your network, with no cloud fallback. Supply the real address from a
+# substitution variable; never commit it. See deploy/README.md, "Local lane".
+# localInference:
+#   enabled: true
+#   upstreamUrl: http://laptop.example.internal:11434

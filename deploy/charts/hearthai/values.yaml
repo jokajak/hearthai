@@ -152,6 +152,26 @@ localInference:
     - name: local-qwen
       ollamaModel: qwen3.6:35b-a3b
       contextWindow: 32768
+  # The gate: a stock Caddy reverse proxy that is the only place the upstream
+  # address exists (as an environment value on its Deployment).
+  gate:
+    image: docker.io/library/caddy:2.11.9
+    # How long a connected upstream may stay silent before the first response
+    # byte. Keep it generous: a cold 32k prompt was measured at about 50 s.
+    responseHeaderTimeout: 180s
+    networkPolicy:
+      # Requires Cilium. Admits this release's LiteLLM and node probes only,
+      # plus additionalIngress.
+      enabled: true
+      # Extra callers, e.g. a status-page prober in another namespace. Each
+      # entry: {namespace: <ns>, matchLabels: {<label>: <value>}}.
+      additionalIngress: []
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
 
 # Runtime pin and hardening copied from home-ops.
 meridian:
