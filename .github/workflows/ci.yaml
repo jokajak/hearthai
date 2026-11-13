@@ -317,3 +317,26 @@ jobs:
         # The blackhole row drops packets with iptables inside the fake's network namespace;
         # the harness calls `sudo -n nsenter ...` for that when not root (passwordless on the runner).
         run: uv run --no-project --with 'pytest>=8,<10' --with pyyaml python -m pytest deploy/tests/gate -v
+
+  hearthai-lane:
+    name: HearthAI lane test (docker)
+    # Same triggers as `hearthai-chart` (every push to main and every pull request; that job
+    # has no path filter either), because the property it checks - a local model name reaches
+    # no cloud provider - can be broken from the chart, the LiteLLM pin or the gate.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - run: helm dependency build deploy/charts/hearthai
+      - name: Local names reach only the gate, on a closed network
+        env:
+          HEARTHAI_DOCKER_TESTS: "1"
+        run: uv run --no-project --with 'pytest>=8,<10' --with pyyaml python -m pytest deploy/tests/lane -v
+      - name: Leftover containers and networks
+        if: failure()
+        run: docker ps -a --filter name=p1d- ; docker network ls --filter name=p1d-

@@ -280,10 +280,11 @@ plain HTTP. No fallback, alias or load-balancing is ever configured for a local 
 chart tests enforce it. LiteLLM still holds cloud credentials in the same process, so the
 guarantee is configuration pinned by tests, not network topology.
 
-<!-- owner decision pending: client-supplied fallbacks -->
-Residual: a caller whose key may use cloud models can name `fallbacks` in its own request body,
-and LiteLLM will honour it. Open WebUI does not send it, and keys restricted to local models
-cannot use a cloud fallback target.
+Accepted residual: a caller whose key may use cloud models can name `fallbacks` in its own request
+body, and LiteLLM will honour it. "Private" means the gateway never moves a local request to
+another provider on its own; a caller that holds a cloud-capable key and asks for a fallback has
+opted in. Open WebUI does not send the field, and keys restricted to local models cannot use a
+cloud fallback target.
 
 Gate settings: 3 s dial timeout; an active probe of `GET /api/version` every 10 s with a 2 s
 timeout (it does not load the model); responses are streamed without buffering; a connected
@@ -303,6 +304,22 @@ is passed through unchanged, since the gate only replaces failures to get an ans
 tests check the rendered configuration; `deploy/tests/gate` runs the pinned Caddy image against
 scripted fake upstreams and checks this behaviour (needs docker; run
 `python -m pytest deploy/tests/gate -v`, the two-minute streaming case is marked `slow`).
+
+Two docker tests check behaviour, not configuration (`HEARTHAI_DOCKER_TESTS=1 pytest deploy/tests/lane`
+and `.../surface`; they are skipped without that variable). The lane test runs the LiteLLM image
+home-ops runs (v1.106.6, newer than the chart's default) on a network with no way out, with the chart's real gate whose upstream is down and recording
+stand-ins for the Claude and ChatGPT routes, and sends each local name through `/v1/chat/completions`,
+`/v1/responses` and `/v1/messages`, streaming and not: each must come back as the gate's 503, no
+stand-in may be reached, and LiteLLM's own per-attempt hook must show only the gate Service; a cloud
+model sent in the same run must be recorded, so silence cannot mean the recorders were unreachable.
+The surface test runs the pinned Open WebUI image against a recording fake gateway and holds a
+two-turn chat, then requires every chat-completions request, including Open WebUI's own title, tag
+and follow-up calls, to name the local model. Neither proves the real laptop path (the gate's upstream
+is never up) or anything outside the calls they make (the surface test does not cover calls only a
+browser triggers, such as autocomplete). The lane test does not cover a client-supplied `fallbacks`
+body, which is an accepted residual (see above). Both pin the versions
+under test: a new LiteLLM or Open WebUI release needs the tests rerun, not assumed. The surface test
+runs in CI (`openwebui-surface.yaml`) when the chart's values.yaml or Open WebUI ConfigMap changes, and weekly.
 
 Practical limits of the laptop (measured on a 36 GB machine with a 35B model at 4-bit):
 
