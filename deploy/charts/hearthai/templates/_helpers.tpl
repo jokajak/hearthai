@@ -122,6 +122,9 @@ Caddy substitutes {$LOCAL_UPSTREAM_URL} from the pod environment at load time.
     reverse_proxy {$LOCAL_UPSTREAM_URL} {
       transport http {
         dial_timeout 3s
+        # No pooled connections: a kept-alive connection to a laptop that has just
+        # vanished would hold the request until response_header_timeout, not the dial timeout.
+        keepalive off
         response_header_timeout {{ .Values.localInference.gate.responseHeaderTimeout }}
       }
       health_uri /api/version

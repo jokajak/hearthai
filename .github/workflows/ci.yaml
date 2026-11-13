@@ -296,3 +296,24 @@ jobs:
             --set openwebui.persistence.existingClaim=,hearthmem.persistence.existingClaim=,litellm.persistence.existingClaim=,meridian.persistence.existingClaim=,postgres.enabled=true \
             | /tmp/kubeconform -strict -summary -schema-location default \
                 -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' -
+
+  hearthai-gate:
+    name: local gate behaviour
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - run: helm dependency build deploy/charts/hearthai
+      - name: Pre-pull the images the test runs
+        run: |
+          docker pull docker.io/library/caddy:2.11.9
+          docker pull python:3.13-slim
+      - name: Drive the real gate against scripted upstreams (includes the two-minute stream)
+        # The blackhole row drops packets with iptables inside the fake's network namespace;
+        # the harness calls `sudo -n nsenter ...` for that when not root (passwordless on the runner).
+        run: uv run --no-project --with 'pytest>=8,<10' --with pyyaml python -m pytest deploy/tests/gate -v

@@ -296,8 +296,13 @@ exactly this body and `Content-Type: application/json`:
 {"error":{"type":"local_unavailable","message":"Local model unavailable: the laptop is off, asleep or off the network. This model never falls back to another provider."}}
 ```
 
-A stream that has already started can only be cut, not replaced by that message. The chart tests
-check the rendered configuration, not the proxy's runtime behaviour.
+The fixed message is not what the user sees in two cases. A stream that has already started can
+only be cut (the client sees an unterminated chunked response, not a `503`), because the status line
+has gone out. And an upstream that answers with its own HTTP error (for example Ollama's `500`)
+is passed through unchanged, since the gate only replaces failures to get an answer. The chart
+tests check the rendered configuration; `deploy/tests/gate` runs the pinned Caddy image against
+scripted fake upstreams and checks this behaviour (needs docker; run
+`python -m pytest deploy/tests/gate -v`, the two-minute streaming case is marked `slow`).
 
 Practical limits of the laptop (measured on a 36 GB machine with a 35B model at 4-bit):
 
