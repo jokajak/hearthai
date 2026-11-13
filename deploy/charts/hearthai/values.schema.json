@@ -171,6 +171,49 @@
           }
         }
       ]
+    },
+    "localInference": {
+      "type": "object",
+      "description": "Model names served only by a machine on the owner's network, with no cloud backend.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Add the local models to the LiteLLM catalogue."
+        },
+        "upstreamUrl": {
+          "type": "string",
+          "description": "Address of the local Ollama host. Required when enabled."
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "ollamaModel",
+              "contextWindow"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^*]+$",
+                "description": "Model name callers request; must not contain '*'."
+              },
+              "ollamaModel": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Model tag served by Ollama."
+              },
+              "contextWindow": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Advertised max input tokens."
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

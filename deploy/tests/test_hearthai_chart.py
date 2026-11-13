@@ -286,3 +286,153 @@ def test_meridian_secret_fallback_and_network_policy_option():
     key = next(v for v in env if v['name'] == 'MERIDIAN_API_KEY')
     assert key['valueFrom']['secretKeyRef']['name'] == 'litellm-secret'
     assert not any(d['kind'] == 'CiliumNetworkPolicy' for d in docs)
+
+
+# ---------------------------------------------------------------------------
+# Local lane: names served only by a machine on the owner's network.
+# ---------------------------------------------------------------------------
+
+# Config keys that can make a request for one model name be served by another
+# deployment (LiteLLM v1.106.6 source). Add a key here and every render below
+# is checked. Each entry is (section, key); section None means top level.
+# `litellm_settings.callbacks` is listed because a callback can rewrite the
+# model. A later package that adds a callback must remove it from this list
+# deliberately, in the same change, and say why.
+REROUTING_KEYS = [
+    *[('router_settings', k) for k in (
+        'fallbacks', 'context_window_fallbacks', 'content_policy_fallbacks',
+        'default_fallbacks', 'model_group_alias', 'routing_groups', 'plugins')],
+    *[('litellm_settings', k) for k in (
+        'fallbacks', 'context_window_fallbacks', 'content_policy_fallbacks',
+        'default_fallbacks', 'model_fallbacks', 'model_alias_map',
+        'use_litellm_proxy', 'callbacks')],
+    *[('general_settings', k) for k in ('completion_model', 'pass_through_endpoints')],
+]
+# Per model_list entry: litellm_params.model prefixes, litellm_params key
+# prefixes, litellm_params keys, and model_info keys that reroute.
+REROUTING_MODEL_PREFIXES = ['auto_router/', 'litellm_proxy/']
+REROUTING_PARAM_PREFIXES = ['auto_router_', 'complexity_router_', 'adaptive_router_', 'quality_router_']
+REROUTING_PARAM_KEYS = ['use_litellm_proxy']
+REROUTING_INFO_KEYS = ['team_public_model_name']
+
+LOCAL_OPTS = ['--set', 'localInference.enabled=true', '--set', 'localInference.upstreamUrl=laptop.invalid']
+
+
+def litellm_config(docs):
+    raw = next(d['data']['config.yaml'] for d in docs if d['kind'] == 'ConfigMap' and 'config.yaml' in d['data'])
+    return yaml.safe_load(raw)
+
+
+def helm_text(chart, *options, example=True):
+    args = [HELM, 'template', 'household', str(chart), '--namespace', 'ai']
+    if example:
+        args += ['-f', str(EXAMPLE)]
+    proc = subprocess.run(args + list(options), capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout
+
+
+def litellm_config_text(docs):
+    return next(d['data']['config.yaml'] for d in docs if d['kind'] == 'ConfigMap' and 'config.yaml' in d['data'])
+
+
+def test_disabled_lane_leaves_bundled_config_untouched():
+    # The data value is the string home-ops deploys; compare text, not parsed YAML.
+    unset = render()
+    explicit = render('--set', 'localInference.enabled=false')
+    assert litellm_config_text(unset) == bundled_config()
+    assert litellm_config_text(explicit) == bundled_config()
+    assert unset == explicit
+
+
+def test_local_lane_requires_upstream_url():
+    err = render('--set', 'localInference.enabled=true', success=False)
+    assert 'localInference.upstreamUrl' in err
+
+
+def test_local_names_appear_once_and_point_at_gate_service():
+    docs = render(*LOCAL_OPTS)
+    models = litellm_config(docs)['model_list']
+    names = [m['model_name'] for m in models]
+    local = [m for m in models if m['litellm_params']['model'].startswith('ollama_chat/')]
+    assert [m['model_name'] for m in local] == ['local-qwen']
+    for m in local:
+        assert names.count(m['model_name']) == 1
+        assert m['litellm_params']['api_base'] == 'http://household-hearthai-local:11434'
+        assert m['litellm_params']['model'] == 'ollama_chat/qwen3.6:35b-a3b'
+        assert m['model_info'] == {'mode': 'chat', 'max_input_tokens': 32768,
+                                   'supports_function_calling': True,
+                                   'disable_background_health_check': True}
+    # Pre-existing catalogue is untouched and still first.
+    assert len(models) == 10 and names[:9] == [m['model_name'] for m in litellm_config(render())['model_list']]
+
+
+def test_duplicate_local_names_fail_to_render():
+    # (a) collision with a cloud name
+    err = render(*LOCAL_OPTS, '--set',
+                 'localInference.models[0].name=gpt-5.5,localInference.models[0].ollamaModel=x,'
+                 'localInference.models[0].contextWindow=1', success=False)
+    assert 'gpt-5.5' in err and 'already used' in err
+    # (b) two local entries with the same name
+    values = ROOT / 'deploy/tests/.dup-values.tmp.yaml'
+    entry = {'name': 'local-qwen', 'ollamaModel': 'x', 'contextWindow': 1}
+    try:
+        values.write_text(yaml.safe_dump({'localInference': {'models': [entry, dict(entry)]}}))
+        err = render(*LOCAL_OPTS, '-f', str(values), success=False)
+    finally:
+        values.unlink(missing_ok=True)
+    assert 'local-qwen' in err and 'already used' in err
+
+
+def rerouting_violations(cfg):
+    found = []
+    for section, key in REROUTING_KEYS:
+        if key in (cfg.get(section) or {}):
+            found.append('%s.%s' % (section, key))
+    for m in cfg.get('model_list') or []:
+        name = str(m.get('model_name'))
+        params = m.get('litellm_params') or {}
+        info = m.get('model_info') or {}
+        if '*' in name:
+            found.append('wildcard model_name %s' % name)
+        if any(str(params.get('model', '')).startswith(p) for p in REROUTING_MODEL_PREFIXES):
+            found.append('%s: rerouting provider %s' % (name, params['model']))
+        found += ['%s: litellm_params.%s' % (name, k) for k in params
+                  if k in REROUTING_PARAM_KEYS or any(k.startswith(p) for p in REROUTING_PARAM_PREFIXES)]
+        found += ['%s: model_info.%s' % (name, k) for k in info if k in REROUTING_INFO_KEYS]
+    names = [m.get('model_name') for m in cfg.get('model_list') or []]
+    found += ['duplicate model_name %s' % n for n in sorted(set(names)) if names.count(n) > 1]
+    return found
+
+
+@pytest.mark.parametrize('opts', [[], LOCAL_OPTS], ids=['disabled', 'enabled'])
+def test_no_rerouting_keys_in_rendered_config(opts):
+    assert rerouting_violations(litellm_config(render(*opts))) == []
+
+
+def test_rerouting_check_detects_violations():
+    cfg = litellm_config(render(*LOCAL_OPTS))
+    cfg['router_settings'] = {'fallbacks': [{'local-qwen': ['gpt-5.5']}]}
+    assert rerouting_violations(cfg) == ['router_settings.fallbacks']
+
+
+@pytest.mark.parametrize('opts', [[], LOCAL_OPTS], ids=['disabled', 'enabled'])
+def test_only_meridian_api_key_is_referenced_by_models(opts):
+    for m in litellm_config(render(*opts))['model_list']:
+        for key, value in (m['litellm_params'] or {}).items():
+            if key == 'api_key' or str(value).startswith('os.environ/'):
+                assert value == 'os.environ/MERIDIAN_API_KEY', (m['model_name'], key, value)
+
+
+@pytest.mark.parametrize('opts', [[], LOCAL_OPTS], ids=['disabled', 'enabled'])
+def test_task_models_unset_in_open_webui(opts):
+    # Names confirmed at Open WebUI v0.11.3; both default to empty.
+    data = config(render(*opts))
+    assert not data.get('TASK_MODEL')
+    assert not data.get('TASK_MODEL_EXTERNAL')
+
+
+@pytest.mark.parametrize('opts', [[], LOCAL_OPTS], ids=['disabled', 'enabled'])
+def test_litellm_args_have_no_model_override(opts):
+    args = proxy(render(*opts))['spec']['template']['spec']['containers'][0]['args']
+    assert not [a for a in args if a == '--model' or a.startswith('--model=')]

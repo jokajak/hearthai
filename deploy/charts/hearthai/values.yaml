@@ -138,6 +138,21 @@ postgres:
     limits:
       memory: 4Gi
 
+# Model names served only by a machine on the owner's network (an Ollama host
+# behind the "<fullname>-local" gate Service, added separately). Each name gets
+# exactly one LiteLLM entry with no cloud fallback; tests enforce that.
+localInference:
+  enabled: false
+  # Address of the local Ollama host. Required when enabled; never commit a
+  # real address, supply it from a substitution variable.
+  upstreamUrl: ""
+  # name is what callers request; ollamaModel is the tag Ollama serves;
+  # contextWindow is the advertised max input tokens.
+  models:
+    - name: local-qwen
+      ollamaModel: qwen3.6:35b-a3b
+      contextWindow: 32768
+
 # Runtime pin and hardening copied from home-ops.
 meridian:
   enabled: true
