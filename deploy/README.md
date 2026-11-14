@@ -359,3 +359,8 @@ Upstream configuration references:
 [SSO](https://docs.openwebui.com/features/authentication-access/auth/sso/).
 Environment names and bootstrap behavior were checked against the pinned
 [Open WebUI v0.11.3 source](https://github.com/open-webui/open-webui/tree/v0.11.3).
+
+Coding-agent clients (Claude Code, Codex CLI, oh-my-pi) can use the local model
+through the gateway: see the [coding-agents runbook](../docs/runbooks/coding-agents.md).
+The bundled LiteLLM config enables `router_settings.enable_pre_call_checks`, so a
+prompt over a deployment's `max_input_tokens` is refused rather than truncated.
