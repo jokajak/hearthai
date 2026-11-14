@@ -1,0 +1,45 @@
+name: openwebui-surface
+
+on:
+  pull_request:
+    paths:
+      # A values.yaml change that is not the Open WebUI tag will over-trigger this; accepted.
+      - deploy/charts/hearthai/values.yaml
+      - deploy/charts/hearthai/templates/configmap.yaml
+      - deploy/tests/surface/**
+      - .github/workflows/openwebui-surface.yaml
+  push:
+    branches: [main]
+    paths:
+      - deploy/charts/hearthai/values.yaml
+      - deploy/charts/hearthai/templates/configmap.yaml
+      - deploy/tests/surface/**
+      - .github/workflows/openwebui-surface.yaml
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  surface:
+    name: Open WebUI surface test (docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - run: helm dependency build deploy/charts/hearthai
+      - name: Open WebUI background tasks stay on the chosen model
+        env:
+          HEARTHAI_DOCKER_TESTS: "1"
+        run: uv run --no-project --with 'pytest>=8,<10' --with pyyaml python -m pytest deploy/tests/surface -v -s
+      - name: Leftover containers and networks
+        if: failure()
+        run: docker ps -a --filter name=p1d- ; docker network ls --filter name=p1d-

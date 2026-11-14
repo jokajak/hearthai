@@ -3,6 +3,32 @@
 {{- if and .Values.meridian.enabled (not .Values.litellm.config) }}
 {{- $config = replace "http://meridian.ai.svc.cluster.local:3456" (printf "http://%s-meridian:3456" (include "hearthai.fullname" .)) $config }}
 {{- end }}
+{{- if .Values.localInference.enabled }}
+{{- /* Parse and re-emit only when enabled; the disabled path never touches $config. */}}
+{{- if not .Values.localInference.upstreamUrl }}
+{{- fail "localInference.enabled=true requires localInference.upstreamUrl (the laptop's address; keep it out of git, supply it via substitution)" }}
+{{- end }}
+{{- $parsed := fromYaml $config }}
+{{- if hasKey $parsed "Error" }}
+{{- fail (printf "litellm config is not valid YAML: %s" $parsed.Error) }}
+{{- end }}
+{{- $models := default (list) $parsed.model_list }}
+{{- /* A repeated name would be load-balanced across laptop and cloud deployments. */}}
+{{- $seen := dict }}
+{{- range $models }}{{- $_ := set $seen (toString .model_name) true }}{{- end }}
+{{- range .Values.localInference.models }}
+{{- if hasKey $seen .name }}
+{{- fail (printf "localInference.models: name %q is already used (by the catalogue or another local entry); a shared name would load-balance a local model with another backend" .name) }}
+{{- end }}
+{{- $_ := set $seen .name true }}
+{{- $models = append $models (dict
+      "model_name" .name
+      "litellm_params" (dict "model" (printf "ollama_chat/%s" .ollamaModel) "api_base" (printf "http://%s-local:11434" (include "hearthai.fullname" $)))
+      "model_info" (dict "mode" "chat" "max_input_tokens" (int64 .contextWindow) "supports_function_calling" true "disable_background_health_check" true)) }}
+{{- end }}
+{{- $_ := set $parsed "model_list" $models }}
+{{- $config = toYaml $parsed }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
