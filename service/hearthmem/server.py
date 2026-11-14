@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .store import InvalidRequest, MemoryStore, StoreNotFound
+from .store import InvalidRequest, MemoryStore, ReadOnlyToken, StoreNotFound
 
 MAX_BODY = 1 << 20
 
@@ -88,6 +88,9 @@ class Handler(BaseHTTPRequestHandler):
                 limit = int((query.get("limit") or ["10"])[0])
                 return self._send(200, {"entries": self.store.search(token, q, limit)})
 
+            if method == "POST" and tail == ["read-token"]:
+                return self._send(201, {"read_token": self.store.mint_read_token(token)})
+
             if method == "POST" and tail == ["entries"]:
                 result = self.store.add_entry(
                     token,
@@ -104,6 +107,8 @@ class Handler(BaseHTTPRequestHandler):
             self._dispatch(method)
         except StoreNotFound as exc:
             self._send(404, {"error": str(exc)})
+        except ReadOnlyToken:
+            self._send(403, {"error": "this token is read-only"})
         except InvalidRequest as exc:
             self._send(400, {"error": str(exc)})
         except Exception as exc:  # noqa: BLE001 - surface as 500, keep serving
