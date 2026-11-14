@@ -710,11 +710,13 @@ def test_ai_jobs_is_the_only_pod_that_asks_for_a_service_account_token():
     asks = [d['metadata']['name'] for d in docs if d['kind'] == 'Deployment'
             and d['spec']['template']['spec'].get('automountServiceAccountToken') is True]
     assert asks == [AI_NAME]
-    # Every other workload this chart template owns opts out explicitly. (The bundled hearthmem
-    # subchart does not say either way, so it gets the cluster default; that predates ai-jobs.)
+    # Every other Deployment, hearthmem included, opts out explicitly.
     not_asked = [d['metadata']['name'] for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] != AI_NAME
                  and d['spec']['template']['spec'].get('automountServiceAccountToken') is not False]
-    assert not_asked == ['household-hearthmem']
+    assert not_asked == []
+    got = [d['metadata']['name'] for d in docs if d['kind'] == 'Deployment'
+           and d['spec']['template']['spec'].get('automountServiceAccountToken') is not False]
+    assert got == [AI_NAME]
 
 
 def test_ai_jobs_environment_and_secret_mounts():
