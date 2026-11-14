@@ -73,6 +73,12 @@ package depends on one. Decisions that are settled:
 - O3: the advertised local context is **32768**. Measured on the laptop: a 42k-token prompt pushed
   it into heavy swap beside a normal desktop. Do not raise it.
 - `OLLAMA_KEEP_ALIVE` stays at Ollama's default in all documentation.
+- Client-supplied fallbacks (a `fallbacks` field in the request body, honoured by LiteLLM when the
+  caller's key may use the target) are an **accepted residual**. "Private" means the gateway never
+  moves a local request to another provider on its own. Documented in `deploy/README.md`.
+- Built-in tool risk (Meridian internal mode; Open WebUI memories, notes, calendar, plugins) is
+  **accepted until the ai-jobs sandbox (S3)**. Scope to confirm with the owner before P3: whether
+  the one-line `MERIDIAN_PASSTHROUGH=1` pin, which only keeps today's behaviour, is still wanted.
 
 ## For every executor (include this section in every brief)
 
@@ -109,7 +115,7 @@ Report back in this shape, as plain text:
 | G1 | Has the I1 branch merged, and is the `hearthai` release Ready with no new objects and an unchanged model list? | H1 |
 | G2 | Is `SECRET_LOCAL_LLM_HOST` populated in `cluster-secrets`, and is the laptop set up per the plan (Ollama exposed, stable address, context 32768)? | H1 merge |
 | G3 | After H1: does the persona answer with the laptop awake **and the status tile show up**, and does it fail in about 3 s with the fixed message, tile down, when the laptop is asleep? | everything after M1 |
-| G4 | Does the LiteLLM admin UI show any model that exists only in the database? Which? | P4 |
+| G4 | Does the LiteLLM admin UI show any model that exists only in the database? Which? Does the `LiteLLM_Config` `general_settings` row carry `store_model_in_db: true`, and do key/team rows carry `router_settings`, `aliases`, `budget_fallbacks` or `model_aliases`? | P4 |
 | G5 | Is the spec approved? (asked once per spec) | packages derived from it |
 
 ## Packages
@@ -118,13 +124,13 @@ Status values: `todo`, `running`, `review`, `ready for owner`, `merged`, `blocke
 
 | ID | Package | Repo | Who | Branch | Depends on | Status |
 |---|---|---|---|---|---|---|
-| V1 | Confirm Open WebUI setting names at the pinned tag | hearthai (read-only) | executor | none | — | todo |
-| V2 | Confirm LiteLLM behaviours at the pinned tag | hearthai (read-only) | executor | none | — | todo |
-| V3 | Confirm Meridian does not run built-in tools | hearthai (read-only) | executor | none | — | todo |
-| P1a | Local lane entries and privacy tests | hearthai | executor | `plan/i1-local-lane` | V2 | todo |
-| P1b | Gate, its network policy, docs | hearthai | executor | continues `plan/i1-local-lane` | P1a | todo |
-| P1c | Gate behaviour test | hearthai | executor | continues `plan/i1-local-lane` | P1b | todo |
-| P1d | Runtime lane test and surface lane test | hearthai | executor | continues `plan/i1-local-lane` | P1b, V2 | todo |
+| V1 | Confirm Open WebUI setting names at the pinned tag | hearthai (read-only) | executor | none | — | done (see "Verification results") |
+| V2 | Confirm LiteLLM behaviours at the pinned tag | hearthai (read-only) | executor | none | — | done (see "Verification results") |
+| V3 | Confirm Meridian does not run built-in tools | hearthai (read-only) | executor | none | — | done (see "Verification results") |
+| P1a | Local lane entries and privacy tests | hearthai | executor | `plan/i1-local-lane` | V2 | ready for owner: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
+| P1b | Gate, its network policy, docs | hearthai | executor | continues `plan/i1-local-lane` | P1a | ready for owner: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
+| P1c | Gate behaviour test | hearthai | executor | continues `plan/i1-local-lane` | P1b | ready for owner: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
+| P1d | Runtime lane test and surface lane test | hearthai | executor | continues `plan/i1-local-lane` | P1b, V2 | ready for owner: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
 | H1 | Enable the lane and add the status probe | home-ops | executor | `plan/h1-local-lane` | G1 | todo |
 | H9 | Pin the hearthai source and automate the bump | home-ops | executor | `plan/h9-pin-hearthai` | G3 | todo |
 | P3 | Open WebUI deny table and drift check | hearthai | executor | `plan/i3-deny-table` | V1, V3, G3 | todo |
@@ -509,8 +515,9 @@ be load-balanced with the laptop. Turning it off makes the chart file the only c
 database-only model that is in use, the orchestrator adds its definition to this brief and you add
 it to the catalogue in the same change.
 
-**Do:** set `store_model_in_db: false` in `files/litellm-config.yaml` and remove or flip the
-matching `STORE_MODEL_IN_DB` value in `templates/litellm.yaml`. Correct the comment above the
+**Do:** set `store_model_in_db: false` in `files/litellm-config.yaml` and **remove** the
+`STORE_MODEL_IN_DB` value in `templates/litellm.yaml` (V2: the env var wins over the file,
+`get_secret_bool(...) or store_model_in_db`, so flipping only the file does nothing). Correct the comment above the
 setting: keys, budgets and spend live in Postgres regardless. Update the hash in
 `test_exact_home_ops_catalogue`, the environment assertion in
 `test_proxy_runtime_and_internal_wiring`, and the passages in `deploy/README.md` that call the file
@@ -546,7 +553,8 @@ full browser open the laptop swaps whenever the model is loaded.
   Then a shared section on keys: one virtual key per tool, allowlisted to `local-qwen` only, and how
   to confirm the gateway refuses that key for any other model. Then known limits. Say that Claude
   Code's fixed prompt takes most of a 32k window and is the least practical of the three.
-- Enable the pre-call context check from V2 question 3 so an oversized request is refused instead
+- Enable the pre-call context check from V2 question 3 (`router_settings.enable_pre_call_checks: true`;
+  it only refuses cleanly while no fallback exists, which P1a's test guarantees) so an oversized request is refused instead
   of truncated. Add a chart test for it.
 - Link the runbook from `deploy/README.md`.
 
@@ -594,3 +602,39 @@ and `ARCHITECTURE.md` "Execution substrate". Settle the executor's Kubernetes in
 sandbox namespace inputs home-ops must provide first, the `memory-recall-v1` profile, and how a
 store token reaches one run. Memory write and webfetch each get their own spec after recall is
 live; the webfetch one starts with the spike in plan I15.
+
+---
+
+## Verification results (2026-11-13)
+
+Executor reports, spot-checked by the orchestrator against source at the pinned versions.
+
+**V1, Open WebUI v0.11.3.** Every name in the plan's I3 table exists unchanged. The terminal
+setting is `TERMINAL_SERVER_CONNECTIONS` (`[]`; its JSON parse is unguarded, so never set it to
+invalid JSON). `PersistentConfig` is gone; with `ENABLE_PERSISTENT_CONFIG=false` the environment
+wins at startup, but admin-UI edits still apply in memory until the pod restarts. Settings the
+table misses that default on: `ENABLE_AUTOMATIONS` (global switch), `USER_PERMISSIONS_CHAT_WEB_UPLOAD`
+(server fetches pasted URLs), `ENABLE_VERSION_UPDATE_CHECK`, `ENABLE_PLUGINS` (enforcement not yet
+read), `ENABLE_MEMORIES`, `ENABLE_NOTES`, `ENABLE_CALENDAR`. Default-off settings worth pinning:
+`ENABLE_SUBAGENTS`, `ENABLE_KB_EXEC`, `ENABLE_USER_WEBHOOKS`, `ENABLE_API_KEYS`,
+`ENABLE_OPENAI_API_PASSTHROUGH`, `ENABLE_LOCAL_WEB_FETCH`, `ENABLE_CUSTOM_MODEL_FALLBACK`,
+`ENABLE_FORWARD_USER_INFO_HEADERS`. P3 must read the enforcement code for `ENABLE_PLUGINS` and for
+web-fetch gating before claiming them closed. P1d found that `TASK_MODEL` applies only to
+Ollama-type connections; for the gateway the setting that matters is `TASK_MODEL_EXTERNAL`.
+
+**V2, LiteLLM v1.106.6.** (1) `model_info.disable_background_health_check: true` is per deployment.
+(2) Keys, budgets and spend do not depend on `store_model_in_db`; the env var overrides the file,
+and a DB `general_settings` row can switch it back on (see P4, G4). (3) The context check is
+`router_settings.enable_pre_call_checks: true`; a context-window error is caught by any fallback.
+(4) The rerouting list is in P1a's test (`REROUTING_KEYS`). Outside the config file: request-body
+`fallbacks` (accepted, see Decisions), and key/team `router_settings`, `aliases`,
+`budget_fallbacks`, team `model_aliases` in the database, which `store_model_in_db` does not gate.
+(5) `/v1/messages` and `/v1/responses` bridge to chat completions for `ollama_chat/`, tools and
+streaming included.
+
+**V3, Meridian 1.88.0.** Passthrough: requests from LiteLLM select the passthrough adapter, which
+forces `tools: []`, `strictMcpConfig`, and a PreToolUse hook that blocks every call and returns it
+to the client. The image sets `CLAUDE_PROXY_PASSTHROUGH=1`. Internal mode (`MERIDIAN_PASSTHROUGH=0`,
+adapter instances) would run Claude Code's tools in the pod with `bypassPermissions`. Pin to
+consider: `MERIDIAN_PASSTHROUGH=1` (see Decisions).
+
