@@ -76,6 +76,10 @@ package depends on one. Decisions that are settled:
 - Client-supplied fallbacks (a `fallbacks` field in the request body, honoured by LiteLLM when the
   caller's key may use the target) are an **accepted residual**. "Private" means the gateway never
   moves a local request to another provider on its own. Documented in `deploy/README.md`.
+- O9 reversed: home-ops keeps following hearthai `main` (no commit pin), because the owner
+  controls both repositories. Consequence: **every hearthai merge deploys**, so rule 1 of "What makes
+  this job hard" stands, and a chart package that changes the running cluster says so at the top of
+  its pull request.
 - Built-in tool risk (Meridian internal mode; Open WebUI memories, notes, calendar, plugins) is
   **accepted until the ai-jobs sandbox (S3)**. Scope to confirm with the owner before P3: whether
   the one-line `MERIDIAN_PASSTHROUGH=1` pin, which only keeps today's behaviour, is still wanted.
@@ -131,13 +135,13 @@ Status values: `todo`, `running`, `review`, `ready for owner`, `merged`, `blocke
 | P1b | Gate, its network policy, docs | hearthai | executor | continues `plan/i1-local-lane` | P1a | merged: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
 | P1c | Gate behaviour test | hearthai | executor | continues `plan/i1-local-lane` | P1b | merged: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
 | P1d | Runtime lane test and surface lane test | hearthai | executor | continues `plan/i1-local-lane` | P1b, V2 | merged: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
-| H1 | Enable the lane and add the status probe | home-ops | executor | `plan/h1-local-lane` | G1 | review: draft [home-ops#1453](https://github.com/jokajak/home-ops/pull/1453), blocked on G2 |
-| H9 | Pin the hearthai source and automate the bump | home-ops | executor | `plan/h9-pin-hearthai` | G3 | todo |
+| H1 | Enable the lane and add the status probe | home-ops | executor | `plan/h1-local-lane` | G1 | merged: [home-ops#1453](https://github.com/jokajak/home-ops/pull/1453); G2 and G3 passed (2026-11-14) |
+| H9 | Pin the hearthai source and automate the bump | home-ops | executor | `plan/h9-pin-hearthai` | G3 | dropped: owner keeps home-ops following hearthai `main` (2026-11-14); [home-ops#1490](https://github.com/jokajak/home-ops/pull/1490) closed unmerged |
 | P3 | Open WebUI deny table and drift check | hearthai | executor | `plan/i3-deny-table` | V1, V3, G3 | todo |
 | P4 | Catalogue in the chart only | hearthai | executor | `plan/i4-catalogue` | G3, G4 | todo |
-| P7 | Coding-agent runbook and context check | hearthai | executor | `plan/i7-coding-agents` | G3, V2 | todo |
-| H7 | Ingress timeouts for the gateway | home-ops | executor | `plan/h7-llm-ingress` | G3 | todo |
-| S1 | Spec: automatic router (plan M3) | hearthai | orchestrator | `plan/spec-router` | G3 | todo |
+| P7 | Coding-agent runbook and context check | hearthai | executor | `plan/i7-coding-agents` | G3, V2 | ready for owner: [hearthai#26](https://github.com/jokajak/hearthai/pull/26) |
+| H7 | Ingress timeouts for the gateway | home-ops | executor | `plan/h7-llm-ingress` | G3 | ready for owner: [home-ops#1489](https://github.com/jokajak/home-ops/pull/1489) |
+| S1 | Spec: automatic router (plan M3) | hearthai | orchestrator | `plan/spec-router` | G3 | review: spec [hearthai#25](https://github.com/jokajak/hearthai/pull/25) awaiting G5 |
 | S2 | Spec: personas at the gateway (plan I11) | hearthai | orchestrator | `plan/spec-personas` | S1 merged | todo |
 | S3 | Spec: executor, memory tools, lane gate (plan M6) | hearthai | orchestrator | `plan/spec-ai-jobs` | G3 | approved with E4 = OpenTelemetry (owner, 2026-11-14): [hearthai#19](https://github.com/jokajak/hearthai/pull/19) |
 | A1 | hearthmem read-only tokens | hearthai | executor | `plan/a1-hearthmem-read-tokens` | S3 | ready for owner: [hearthai#20](https://github.com/jokajak/hearthai/pull/20) |
