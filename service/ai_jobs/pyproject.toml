@@ -17,6 +17,7 @@ dependencies = [
 test = ["pytest>=8,<9"]
 
 [project.scripts]
+ai-jobs = "ai_jobs.server:main"
 ai-jobs-worker = "ai_jobs.worker:main"
 
 [tool.setuptools.packages.find]
