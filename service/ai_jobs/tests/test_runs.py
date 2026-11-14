@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from ai_jobs.contracts import RunState
-from ai_jobs.executor import ResolvedWorkerProfile
+from ai_jobs.executor import ExecutionRef, ResolvedWorkerProfile, Resources
 from ai_jobs.registry import ToolRegistry
 from ai_jobs.runs import InvalidIdempotencyKey, RunService
 from ai_jobs.storage import IdempotencyConflict, InMemoryRunStore, TransitionConflict
@@ -12,16 +12,26 @@ from ai_jobs.tools.web_research import WebResearchDefinition
 KEY = "123e4567-e89b-12d3-a456-426614174000"
 
 
+PROFILE = ResolvedWorkerProfile(
+    "web-research-v1",
+    "registry.invalid/worker:test",
+    ("worker",),
+    90,
+    Resources("100m", "200m", "64Mi", "128Mi"),
+)
+
+
 class FakeExecutor:
     def __init__(self):
         self.started = []
         self.cancelled = []
 
-    def start(self, run_id, profile):
-        self.started.append((run_id, profile))
+    def ensure_started(self, spec):
+        self.started.append((spec.run_id, spec.profile))
+        return ExecutionRef(spec.run_id, spec.run_id)
 
-    def cancel(self, run_id):
-        self.cancelled.append(run_id)
+    def request_cancel(self, ref):
+        self.cancelled.append(ref.run_id)
 
 
 def service():
@@ -32,7 +42,7 @@ def service():
         ToolRegistry((WebResearchDefinition(),)),
         store,
         executor,
-        {"web-research-v1": ResolvedWorkerProfile("web-research-v1", 90)},
+        {"web-research-v1": PROFILE},
         clock=lambda: datetime(2026, 9, 7, tzinfo=UTC),
         id_factory=lambda: next(identifiers),
     )
@@ -45,7 +55,7 @@ def test_admission_resolves_policy_and_starts_fixed_profile():
     assert created is True
     assert run.grants == frozenset({"search", "fetch", "infer"})
     assert run.budgets.elapsed_seconds == 90
-    assert executor.started == [("run-1", ResolvedWorkerProfile("web-research-v1", 90))]
+    assert executor.started == [("run-1", PROFILE)]
 
 
 def test_matching_retry_reuses_run_and_does_not_start_worker_twice():
@@ -84,17 +94,19 @@ def test_invalid_idempotency_key_fails_before_start():
 def test_state_transition_is_compare_and_set():
     runs, store, _ = service()
     run, _ = runs.admit("open-webui", "web_research", 1, KEY, {"question": "q"})
-    starting = store.transition(run.id, RunState.ACCEPTED, RunState.STARTING)
-    assert starting.state is RunState.STARTING
+    # admit has already moved the run to STARTING, so ACCEPTED is now a stale expectation.
+    assert run.state is RunState.STARTING
     with pytest.raises(TransitionConflict):
         store.transition(run.id, RunState.ACCEPTED, RunState.RUNNING)
+    running = store.transition(run.id, RunState.STARTING, RunState.RUNNING)
+    assert running.state is RunState.RUNNING
 
 
 def test_state_machine_rejects_skipping_running_and_terminal_rewrites():
     runs, store, _ = service()
     run, _ = runs.admit("open-webui", "web_research", 1, KEY, {"question": "q"})
     with pytest.raises(TransitionConflict, match="illegal transition"):
-        store.transition(run.id, RunState.ACCEPTED, RunState.SUCCEEDED)
-    store.transition(run.id, RunState.ACCEPTED, RunState.CANCELLED)
+        store.transition(run.id, RunState.STARTING, RunState.SUCCEEDED)
+    store.transition(run.id, RunState.STARTING, RunState.CANCELLED)
     with pytest.raises(TransitionConflict, match="illegal transition"):
         store.transition(run.id, RunState.CANCELLED, RunState.RUNNING)
