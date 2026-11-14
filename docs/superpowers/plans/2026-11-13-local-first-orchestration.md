@@ -140,14 +140,14 @@ Status values: `todo`, `running`, `review`, `ready for owner`, `merged`, `blocke
 | S1 | Spec: automatic router (plan M3) | hearthai | orchestrator | `plan/spec-router` | G3 | todo |
 | S2 | Spec: personas at the gateway (plan I11) | hearthai | orchestrator | `plan/spec-personas` | S1 merged | todo |
 | S3 | Spec: executor, memory tools, lane gate (plan M6) | hearthai | orchestrator | `plan/spec-ai-jobs` | G3 | approved with E4 = OpenTelemetry (owner, 2026-11-14): [hearthai#19](https://github.com/jokajak/hearthai/pull/19) |
-| A1 | hearthmem read-only tokens | hearthai | executor | `plan/a1-hearthmem-read-tokens` | S3 | todo |
-| A2 | Executor on agent-sandbox, OTel audit, no-op profile | hearthai | executor | `plan/a2-executor` | S3 | todo |
-| A3 | HTTP surface, `memory_recall` tool and worker | hearthai | executor | `plan/a3-recall` | A1, A2 | todo |
-| A4 | `ai-jobs` image, chart behind `aiJobs.enabled`, kind end-to-end | hearthai | executor | `plan/a4-chart` | A3 | todo |
-| A5 | agent-sandbox controller and sandbox namespace | home-ops | executor | `plan/a5-sandbox-namespace` | S3 | todo |
+| A1 | hearthmem read-only tokens | hearthai | executor | `plan/a1-hearthmem-read-tokens` | S3 | ready for owner: [hearthai#20](https://github.com/jokajak/hearthai/pull/20) |
+| A2 | Executor on agent-sandbox, OTel audit, no-op profile | hearthai | executor | `plan/a2-executor` | S3 | ready for owner: [hearthai#21](https://github.com/jokajak/hearthai/pull/21) |
+| A3 | HTTP surface, `memory_recall` tool and worker | hearthai | executor | `plan/a3-recall` | A1, A2 | ready for owner: [hearthai#22](https://github.com/jokajak/hearthai/pull/22) |
+| A4 | `ai-jobs` image, chart behind `aiJobs.enabled`, kind end-to-end | hearthai | executor | `plan/a4-chart` | A3 | ready for owner: [hearthai#23](https://github.com/jokajak/hearthai/pull/23); release step in [hearthai#24](https://github.com/jokajak/hearthai/pull/24) (A4b) |
+| A5 | agent-sandbox controller and sandbox namespace | home-ops | executor | `plan/a5-sandbox-namespace` | S3 | ready for owner: [home-ops#1486](https://github.com/jokajak/home-ops/pull/1486) |
 | A6 | Enable `aiJobs` with `noop-v1` | home-ops | executor | `plan/a6-enable-ai-jobs` | A4 merged, A5 live | todo |
 | A7 | Recall exposed in Open WebUI | hearthai, home-ops | executor | `plan/a7-recall-exposed` | A6 live, P3 merged, owner steps | todo |
-| A8 | gVisor runtime class | home-ops | executor | `plan/a8-gvisor` | S3 | todo |
+| A8 | gVisor runtime class | home-ops | executor | `plan/a8-gvisor` | S3 | review: draft [home-ops#1484](https://github.com/jokajak/home-ops/pull/1484), blocked on the `user.max_user_namespaces` sysctl decision |
 
 V1 to V3 can run in parallel. P1a to P1d are sequential on one branch and merge as one pull
 request; do not open it until P1c and P1d pass, because they are the only evidence for what the
