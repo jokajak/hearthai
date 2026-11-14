@@ -340,3 +340,74 @@ jobs:
       - name: Leftover containers and networks
         if: failure()
         run: docker ps -a --filter name=p1d- ; docker network ls --filter name=p1d-
+
+  ai-jobs-image:
+    name: build ai-jobs image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./service/ai_jobs
+          push: false
+          load: true
+          tags: ai-jobs:ci
+          cache-from: type=gha,scope=ai-jobs
+          cache-to: type=gha,mode=max,scope=ai-jobs
+      - name: Smoke test the image
+        run: |
+          set -euo pipefail
+          echo "--- runs as the uid/gid the sandbox pod spec fixes ---"
+          test "$(docker inspect --format '{{.Config.User}}' ai-jobs:ci)" = "65532:65532"
+
+          echo "--- the control plane refuses to start without its configuration ---"
+          err="$(mktemp)"
+          status=0
+          docker run --rm --read-only ai-jobs:ci serve 2>"$err" || status=$?
+          test "$status" = "2"
+          grep -q 'AI_JOBS_CALLER_KEYS_FILE is required' "$err"
+
+          echo "--- a worker runs under the sandbox pod's restrictions ---"
+          # Read-only root, no capabilities, no new privileges, a scratch /tmp, and the request
+          # mounted read-only where the executor mounts it. This is what a Sandbox pod does.
+          work="$(mktemp -d)"
+          echo '{}' > "$work/request.json"
+          chmod 755 "$work"; chmod 644 "$work/request.json"
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --user 65532:65532 --tmpfs /tmp -v "$work:/run/ai-jobs:ro" \
+            --entrypoint ai-jobs-worker ai-jobs:ci noop > "$work/envelope.json"
+          python3 -c "import json,sys; e=json.load(open(sys.argv[1])); assert e['status']=='ok' and e['data']=={'ok':True}, e; print('noop envelope ok')" "$work/envelope.json"
+
+  ai-jobs-e2e:
+    name: ai-jobs on kind
+    # Proves lifecycle, admission and cleanup against a real API server and the real
+    # agent-sandbox controller. It does NOT prove isolation: kind's CNI enforces no
+    # CiliumNetworkPolicy (the kind is only admitted, through a stub CRD) and kind has no gVisor.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - uses: azure/setup-kubectl@v4
+      - uses: helm/kind-action@v1
+        with:
+          install_only: true
+          version: v0.27.0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - name: Build both images, create the cluster, run the runs
+        # The harness builds the ai-jobs image and the tree's own hearthmem (the chart's pinned
+        # hearthmem predates read-only tokens), creates the kind cluster, installs agent-sandbox
+        # v1.0.9 core from its release asset (digest-checked), applies the sandbox-namespace
+        # fixture, installs the chart, seeds hearthmem and drives the runs.
+        env:
+          HEARTHAI_KIND_TESTS: "1"
+        run: uv run --no-project --with 'pytest>=8,<10' --with pyyaml python -m pytest deploy/tests/ai_jobs_e2e -v -s
+      - name: Leftover clusters and containers
+        if: failure()
+        run: kind get clusters; docker ps -a

@@ -21,7 +21,7 @@ from ai_jobs.envelope import (
     Status,
     Trust,
 )
-from ai_jobs.executor import ResolvedWorkerProfile
+from ai_jobs.executor import ExecutionRef, ResolvedWorkerProfile, Resources
 from ai_jobs.registry import ToolRegistry
 from ai_jobs.runs import RunService
 from ai_jobs.storage import InMemoryRunStore
@@ -176,7 +176,11 @@ def test_the_run_store_keeps_a_digest_rather_than_the_url():
         ToolRegistry((WebFetchDefinition(),)),
         InMemoryRunStore(),
         _NullExecutor(),
-        {"web-fetch-v1": ResolvedWorkerProfile("web-fetch-v1", 25)},
+        {
+            "web-fetch-v1": ResolvedWorkerProfile(
+                "web-fetch-v1", "registry.invalid/worker:test", ("worker",), 25, Resources("1m", "1m", "1Mi", "1Mi")
+            )
+        },
         id_factory=lambda: "run-1",
     )
     run, created = runs.admit("open-webui", "web_fetch", 1, KEY, {"url": "https://example.com/secret-path"})
@@ -189,10 +193,10 @@ def test_the_run_store_keeps_a_digest_rather_than_the_url():
 
 
 class _NullExecutor:
-    def start(self, run_id, profile):
-        return None
+    def ensure_started(self, spec):
+        return ExecutionRef(spec.run_id, spec.run_id)
 
-    def cancel(self, run_id):
+    def request_cancel(self, ref):
         return None
 
 

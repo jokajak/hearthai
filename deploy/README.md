@@ -339,6 +339,66 @@ only, plus `localInference.gate.networkPolicy.additionalIngress` (a list of `nam
 `matchLabels` entries, default empty). Set `localInference.gate.networkPolicy.enabled=false` to
 omit it. The chart sets no egress policy, because the laptop's address is site-specific.
 
+## ai-jobs
+
+Optional and off by default (`aiJobs.enabled`). `ai-jobs` is the control plane for model-callable
+tools that must not run in the chat process: one reviewed tool (today, `memory_recall`), one
+`Sandbox` ([agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) v1.0.9) per run, built
+by the control plane from a fixed profile, with the request delivered in a per-run Secret and the
+result read back from the worker's last stdout line. It is package S3 (decisions E1-E9) of
+[the local-first orchestration brief](../docs/superpowers/plans/2026-11-13-local-first-orchestration.md).
+
+What the chart renders when enabled, all in the release namespace unless stated:
+
+- a Deployment `<release>-ai-jobs` (one replica, `Recreate`, non-root, read-only root, no
+  capabilities), its Service on 8080, and its ServiceAccount. It is the **one pod in this chart that
+  asks for a service-account token**, because it creates the sandboxes; its Role is not in this chart;
+- a `CiliumNetworkPolicy` admitting this release's Open WebUI pods and node probes to port 8080;
+- a ConfigMap `<release>-ai-jobs` recording the enabled profiles (nothing reads it; the policies
+  are the enforced counterpart);
+- in `aiJobs.sandboxNamespace` (default `ai-jobs`), one egress `CiliumNetworkPolicy` per enabled
+  profile. For `memory-recall-v1` (`aiJobs.profiles.memoryRecall.enabled`): DNS to kube-dns on
+  53/UDP+TCP and this release's hearthmem on its container port, nothing else. `noop-v1` needs
+  no network and renders nothing. Set `aiJobs.networkPolicy.enabled=false` to omit all of them.
+
+Inputs the chart does not create:
+
+| Input | Where | Note |
+|---|---|---|
+| Namespace `ai-jobs` (Pod Security `restricted`), quota, limit range, **default-deny** policy, a Role and RoleBinding for `<release>-ai-jobs`, a token-less `default` service account | home-ops | **Must be live before `aiJobs.enabled` merges.** Cilium reads the default-deny from the live cluster, and a sandbox pod that starts first has open egress. |
+| agent-sandbox v1.0.9 controller and its CRD (core only) | home-ops | The control plane cannot create a run without it. |
+| `aiJobs.existingSecret` | release namespace | Keys `caller-keys.json` (override with `aiJobs.callerKeysKey`): a JSON object `{"<bearer key>": "<caller id>"}`, keys of at least 32 characters; and `memory_recall_read_token`: a hearthmem **read** token, never the store's write token. The control plane reads the token file at startup whether or not the recall profile is enabled, so the key must exist either way. |
+| `aiJobs.otel.logsEndpoint` | values | OTLP/HTTP logs endpoint for audit records (VictoriaLogs' `/insert/opentelemetry/v1/logs`). Empty exports nothing; each record is still written to stdout. The chart never sets the generic `OTEL_EXPORTER_OTLP_ENDPOINT`, which would start exporting traces too. |
+| The image `ghcr.io/jokajak/ai-jobs` | registry | `aiJobs.image.tag` defaults to the chart's `appVersion`. The control plane and every sandbox use the same image and tag. |
+
+The image (`service/ai_jobs/Dockerfile`) is one image with two entry points (`ai-jobs serve`, and
+`ai-jobs-worker <profile>` as a profile's container command), runs as 65532:65532, and writes
+nothing outside a mounted volume, so a read-only root works.
+
+### Test on kind
+
+`deploy/tests/ai_jobs_e2e` (CI job `ai-jobs on kind`; locally
+`HEARTHAI_KIND_TESTS=1 pytest deploy/tests/ai_jobs_e2e -v -s`, which needs docker, kind, kubectl and
+helm) builds the ai-jobs image and this tree's hearthmem, creates a kind cluster, installs the
+agent-sandbox v1.0.9 core release asset (digest-checked), applies a fixture copy of the home-ops
+objects, installs this chart (Open WebUI is stubbed with the pause image; LiteLLM, Meridian and
+Postgres are off), seeds hearthmem and drives one no-op run, one recall run through the HTTP API,
+and a refused request with an extra field. It checks that the `Sandbox` reaches `Finished` with
+`PodSucceeded`, that the envelope comes back through `pods/log`, that the `Sandbox`, its per-run
+Secret and its pod are gone after `shutdownTime`, that nothing is created for a refused request,
+and that the startup sweep removes only stale `ai-jobs` Sandboxes.
+
+Hosts where docker lacks `CAP_SYS_RESOURCE` on a cgroup v1 kernel (some nested sandboxes) need
+`AI_JOBS_E2E_NESTED_HOST=1`; GitHub's runners do not. `AI_JOBS_E2E_NAME` renames the cluster and
+images, `AI_JOBS_E2E_SKIP_BUILD=1` reuses images, `AI_JOBS_E2E_KEEP=1` keeps the cluster.
+
+**What this does not show.** kind's CNI enforces no `CiliumNetworkPolicy` (the test installs a stub
+CRD so the objects are admitted, nothing more) and kind has no gVisor. The test proves lifecycle,
+admission under `restricted`, and cleanup. It does not prove that a sandbox pod cannot reach
+anything but hearthmem, or that it runs under a stronger runtime. Those are checked on the real
+cluster by the owner. The no-op tool is deliberately not model-callable, so it has no HTTP route:
+the test runs it through the same executor from inside the control-plane pod.
+
 ## Validate
 
 ```sh
