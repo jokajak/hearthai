@@ -118,6 +118,15 @@ def cmd_share(args) -> None:
         print(f"shared to '{args.name}' as {result['id']}")
 
 
+def cmd_read_token(args) -> None:
+    result = call("POST", "/stores/_/read-token", token=resolve(args.name))
+    print(result["read_token"])
+    print(
+        "minting again revokes the previous read token; it only reads, and is shown once.",
+        file=sys.stderr,
+    )
+
+
 def cmd_recall(args) -> None:
     token = resolve(args.name)
     query = urllib.parse.urlencode({"q": args.query or "", "limit": args.limit})
@@ -162,6 +171,10 @@ def main() -> None:
     p.add_argument("query", nargs="?", default="")
     p.add_argument("--limit", type=int, default=10)
     p.set_defaults(func=cmd_recall)
+
+    p = sub.add_parser("read-token", help="mint a read-only token for a store (revokes the previous one)")
+    p.add_argument("name")
+    p.set_defaults(func=cmd_read_token)
 
     args = parser.parse_args()
     args.func(args)

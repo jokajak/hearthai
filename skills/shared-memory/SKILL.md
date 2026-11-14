@@ -29,6 +29,7 @@ hearthmem recall <name> [query]             # search a store
 hearthmem share <name> "<content>" [--tag t]   # put something in
 hearthmem create <name> "<purpose>"         # make a new store, prints its token
 hearthmem add <name> <token>                # join a store someone shared with you
+hearthmem read-token <name>                 # mint a read-only token; revokes the previous one
 ```
 
 ## How to use it
@@ -60,10 +61,16 @@ already made**, run `hearthmem list --tokens`. Plain `hearthmem list` never show
 tokens — only reach for `--tokens` when the user is explicitly asking for a token
 to hand to someone, not as a routine part of answering "what stores do I have."
 
+**Read-only tokens are for software, not people.** `hearthmem read-token <name>`
+prints a token that can describe and search the store but never write to it, for a
+service that should only recall. A store has one at a time: minting again stops the
+previous one working at once. It needs the store's write token, is shown once, and
+should go straight into a secret manager, not into conversation.
+
 ## What this does not do
 
-- **No revocation.** A token, once out, cannot be taken back. Say so when the user
-  creates or shares one.
+- **No revocation of the write token.** A write token, once out, cannot be taken back
+  (only the read token can be rotated). Say so when the user creates or shares one.
 - **No deletion or editing.** Entries accumulate. Correct a wrong entry by sharing
   the correction as a new entry that names what it supersedes.
 - **Self-asserted attribution.** Entries record who wrote them because the agent

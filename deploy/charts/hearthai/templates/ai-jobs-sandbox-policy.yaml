@@ -1,0 +1,40 @@
+{{- if and .Values.aiJobs.enabled .Values.aiJobs.networkPolicy.enabled }}
+{{- $ai := .Values.aiJobs }}
+{{- if $ai.profiles.memoryRecall.enabled }}
+# memory-recall-v1 sandboxes: DNS and this release's hearthmem, nothing else. Policies in the
+# sandbox namespace add to its default-deny, so this is the whole of what the pod can reach.
+# The profile label is set by ai_jobs.sandbox on every pod it creates.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "hearthai.aiJobs.name" . }}-memory-recall-v1
+  namespace: {{ $ai.sandboxNamespace }}
+  labels:
+    {{- include "hearthai.aiJobs.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      ai-jobs.hearthai/profile: memory-recall-v1
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            {{- include "hearthmem.selectorLabels" (include "hearthai.aiJobs.hearthmemContext" . | fromJson) | nindent 12 }}
+            k8s:io.kubernetes.pod.namespace: {{ .Release.Namespace }}
+      toPorts:
+        - ports:
+            # The hearthmem container's port (the subchart hardcodes it); policy applies after
+            # the Service's port is translated to it.
+            - port: "8765"
+              protocol: TCP
+{{- end }}
+{{- end }}

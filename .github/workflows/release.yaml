@@ -59,8 +59,31 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: true
           sbom: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=hearthmem
+          cache-to: type=gha,scope=hearthmem,mode=max
+
+      - name: ai-jobs image metadata
+        id: meta-ai-jobs
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/ai-jobs
+          tags: |
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.raw }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.raw }}
+            type=raw,value=latest
+
+      - name: Build and push ai-jobs
+        uses: docker/build-push-action@v6
+        with:
+          context: ./service/ai_jobs
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-ai-jobs.outputs.tags }}
+          labels: ${{ steps.meta-ai-jobs.outputs.labels }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha,scope=ai-jobs
+          cache-to: type=gha,scope=ai-jobs,mode=max
 
       - uses: azure/setup-helm@v4
         with:
@@ -81,7 +104,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.semver }}
         run: |
-          # Pin the just-published memory image, while keeping WebUI's independent pin.
+          # Pin the just-published memory and ai-jobs images, while keeping WebUI's independent pin.
           python3 - <<'PYTHON'
           import os
           from pathlib import Path
@@ -89,6 +112,7 @@ jobs:
           path = Path('deploy/charts/hearthai/values.yaml')
           values = yaml.safe_load(path.read_text())
           values['hearthmem']['image']['tag'] = os.environ['VERSION']
+          values['aiJobs']['image']['tag'] = os.environ['VERSION']
           path.write_text(yaml.safe_dump(values, sort_keys=False))
           PYTHON
           helm dependency build deploy/charts/hearthai
@@ -111,4 +135,5 @@ jobs:
             echo '```'
             echo
             echo "Image: \`ghcr.io/$OWNER/hearthmem:$VERSION\` (amd64, arm64)"
+            echo "Image: \`ghcr.io/$OWNER/ai-jobs:$VERSION\` (amd64, arm64)"
           } >> "$GITHUB_STEP_SUMMARY"

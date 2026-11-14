@@ -606,3 +606,279 @@ def test_gate_image_is_fully_qualified_for_renovate():
     image = gate_of(render(*GATE_OPTS), 'Deployment')['spec']['template']['spec']['containers'][0]['image']
     assert image == yaml.safe_load((CHART / 'values.yaml').read_text())['localInference']['gate']['image']
     assert image.startswith('docker.io/library/caddy:')
+
+
+# ---- ai-jobs --------------------------------------------------------------------------------
+
+AI_NAME = 'household-hearthai-ai-jobs'
+AI_OPTS = ['--set', 'aiJobs.enabled=true,aiJobs.existingSecret=ai-jobs-secret']
+RECALL_OPTS = [*AI_OPTS, '--set', 'aiJobs.profiles.memoryRecall.enabled=true']
+SERVICE_SRC = ROOT / 'service/ai_jobs/src/ai_jobs'
+
+
+def ai_objects(docs):
+    """Everything the ai-jobs templates own, in any namespace."""
+    return [d for d in docs
+            if d['metadata'].get('labels', {}).get('app.kubernetes.io/name') == 'ai-jobs'
+            or d['metadata']['name'].startswith(AI_NAME)]
+
+
+def ai_of(docs, kind):
+    found = [d for d in ai_objects(docs) if d['kind'] == kind]
+    assert len(found) == 1, kind
+    return found[0]
+
+
+def chart_without_ai_jobs(tmp_path):
+    """The chart as it was before ai-jobs: its templates, values block and schema entry removed."""
+    copy = tmp_path / 'hearthai-before-ai-jobs'
+    subprocess.run(['cp', '-r', str(CHART), str(copy)], check=True)
+    for template in (copy / 'templates').glob('ai-jobs*.yaml'):
+        template.unlink()
+    values = yaml.safe_load((copy / 'values.yaml').read_text())
+    assert values.pop('aiJobs')['enabled'] is False
+    (copy / 'values.yaml').write_text(yaml.safe_dump(values))
+    schema = json.loads((copy / 'values.schema.json').read_text())
+    del schema['properties']['aiJobs']
+    (copy / 'values.schema.json').write_text(json.dumps(schema))
+    return copy
+
+
+@pytest.mark.parametrize('opts', [
+    (),
+    ('--set', 'aiJobs.enabled=false'),
+    ('--set', 'aiJobs.enabled=false,aiJobs.existingSecret=ignored,aiJobs.profiles.memoryRecall.enabled=true'),
+    ('--set', 'localInference.enabled=true,localInference.upstreamUrl=http://laptop.example.internal:11434'),
+])
+def test_disabled_ai_jobs_leaves_the_whole_render_untouched(tmp_path, opts):
+    # Byte for byte, the output of the same chart with the ai-jobs templates, values and schema
+    # entry deleted. Parsed YAML would hide an ordering or whitespace change; text does not.
+    before = helm_text(chart_without_ai_jobs(tmp_path), *opts)
+    assert helm_text(CHART, *opts) == before
+    assert 'ai-jobs' not in before
+
+
+def test_ai_jobs_absent_by_default():
+    docs = render()
+    assert ai_objects(docs) == []
+    assert not any(d['metadata'].get('namespace') == 'ai-jobs' for d in docs)
+
+
+def test_enabled_ai_jobs_requires_its_secret():
+    err = render('--set', 'aiJobs.enabled=true', success=False)
+    assert 'aiJobs.existingSecret' in err
+
+
+def test_enabled_ai_jobs_renders_exactly_these_objects():
+    docs = render(*AI_OPTS)
+    assert sorted(d['kind'] for d in ai_objects(docs)) == [
+        'CiliumNetworkPolicy', 'ConfigMap', 'Deployment', 'Service', 'ServiceAccount']
+    # No Secret, Role or RoleBinding: the Role is the sandbox namespace's, created outside.
+    assert not any(d['kind'] in ('Secret', 'Role', 'RoleBinding', 'ClusterRole', 'ClusterRoleBinding') for d in docs)
+    # The other workloads are exactly as before.
+    assert len([d for d in docs if d['kind'] == 'Deployment']) == 5
+
+
+def test_ai_jobs_control_plane_pod():
+    dep = ai_of(render(*AI_OPTS), 'Deployment')
+    assert dep['metadata']['name'] == AI_NAME
+    assert dep['spec']['replicas'] == 1
+    assert dep['spec']['strategy']['type'] == 'Recreate'
+    selector = dep['spec']['selector']['matchLabels']
+    assert selector.items() <= dep['spec']['template']['metadata']['labels'].items()
+    pod = dep['spec']['template']['spec']
+    assert pod['serviceAccountName'] == AI_NAME
+    assert pod['automountServiceAccountToken'] is True
+    assert pod['securityContext']['runAsNonRoot'] is True
+    assert pod['securityContext']['seccompProfile']['type'] == 'RuntimeDefault'
+    assert not pod.get('hostNetwork') and not pod.get('hostPID') and not pod.get('hostIPC')
+    assert not any('hostPath' in v for v in pod['volumes'])
+    container, = pod['containers']
+    assert container['args'] == ['serve']
+    sc = container['securityContext']
+    assert sc['readOnlyRootFilesystem'] is True
+    assert sc['allowPrivilegeEscalation'] is False
+    assert sc['capabilities']['drop'] == ['ALL']
+    # Every mount is read-only except the scratch directory.
+    writable = [m['mountPath'] for m in container['volumeMounts'] if not m.get('readOnly')]
+    assert writable == ['/tmp']
+    assert 'envFrom' not in container
+
+
+def test_ai_jobs_is_the_only_pod_that_asks_for_a_service_account_token():
+    docs = render(*AI_OPTS)
+    asks = [d['metadata']['name'] for d in docs if d['kind'] == 'Deployment'
+            and d['spec']['template']['spec'].get('automountServiceAccountToken') is True]
+    assert asks == [AI_NAME]
+    # Every other Deployment, hearthmem included, opts out explicitly.
+    not_asked = [d['metadata']['name'] for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] != AI_NAME
+                 and d['spec']['template']['spec'].get('automountServiceAccountToken') is not False]
+    assert not_asked == []
+    got = [d['metadata']['name'] for d in docs if d['kind'] == 'Deployment'
+           and d['spec']['template']['spec'].get('automountServiceAccountToken') is not False]
+    assert got == [AI_NAME]
+
+
+def test_ai_jobs_environment_and_secret_mounts():
+    docs = render(*AI_OPTS)
+    dep = ai_of(docs, 'Deployment')
+    pod = dep['spec']['template']['spec']
+    container = pod['containers'][0]
+    env = {e['name']: e for e in container['env']}
+    assert set(env) == {
+        'AI_JOBS_CALLER_KEYS_FILE', 'AI_JOBS_CREDENTIALS_DIR', 'AI_JOBS_IMAGE',
+        'AI_JOBS_HEARTHMEM_URL', 'AI_JOBS_NAMESPACE', 'OTEL_SERVICE_NAME'}
+    # Nothing secret is an environment value; the keys and the token are files.
+    assert not any('valueFrom' in e for e in env.values())
+    assert env['AI_JOBS_NAMESPACE']['value'] == 'ai-jobs'
+    assert env['OTEL_SERVICE_NAME']['value'] == 'ai-jobs'
+    # Sandboxes run the control plane's own image.
+    assert env['AI_JOBS_IMAGE']['value'] == container['image'] == 'ghcr.io/jokajak/ai-jobs:0.1.0'
+    volumes = {v['name']: v for v in pod['volumes']}
+    mounts = {m['name']: m['mountPath'] for m in container['volumeMounts']}
+    callers = volumes['callers']['secret']
+    credentials = volumes['credentials']['secret']
+    assert callers['secretName'] == credentials['secretName'] == 'ai-jobs-secret'
+    assert callers['items'] == [{'key': 'caller-keys.json', 'path': 'caller-keys.json'}]
+    assert credentials['items'] == [{'key': 'memory_recall_read_token', 'path': 'memory_recall_read_token'}]
+    assert env['AI_JOBS_CALLER_KEYS_FILE']['value'] == f"{mounts['callers']}/caller-keys.json"
+    assert env['AI_JOBS_CREDENTIALS_DIR']['value'] == mounts['credentials']
+    # The caller keys are not in the directory profiles resolve credentials from.
+    assert mounts['callers'] != mounts['credentials']
+    # fsGroup 65532 reads these through the group bits, which 0440 sets.
+    assert callers['defaultMode'] == credentials['defaultMode'] == 0o440
+    assert pod['securityContext']['fsGroup'] == 65532
+
+
+def test_ai_jobs_caller_keys_key_is_configurable():
+    pod = ai_of(render(*AI_OPTS, '--set', 'aiJobs.callerKeysKey=keys.json'), 'Deployment')['spec']['template']['spec']
+    callers = next(v for v in pod['volumes'] if v['name'] == 'callers')['secret']
+    assert callers['items'] == [{'key': 'keys.json', 'path': 'caller-keys.json'}]
+
+
+def test_ai_jobs_image_tag_and_namespace_come_from_values():
+    docs = render(*AI_OPTS, '--set', 'aiJobs.image.tag=1.2.3,aiJobs.image.repository=registry.example/x/ai-jobs,aiJobs.sandboxNamespace=sbx')
+    env = {e['name']: e['value'] for e in ai_of(docs, 'Deployment')['spec']['template']['spec']['containers'][0]['env']}
+    assert env['AI_JOBS_IMAGE'] == 'registry.example/x/ai-jobs:1.2.3'
+    assert env['AI_JOBS_NAMESPACE'] == 'sbx'
+
+
+def test_ai_jobs_otel_sets_only_the_logs_endpoint():
+    def env_for(*opts):
+        pod = ai_of(render(*AI_OPTS, *opts), 'Deployment')['spec']['template']['spec']
+        return {e['name']: e['value'] for e in pod['containers'][0]['env']}
+    assert not any(name.startswith('OTEL_EXPORTER') for name in env_for())
+    env = env_for('--set', 'aiJobs.otel.logsEndpoint=http://logs.example.svc:9428/insert/opentelemetry/v1/logs')
+    assert env['OTEL_EXPORTER_OTLP_LOGS_ENDPOINT'] == 'http://logs.example.svc:9428/insert/opentelemetry/v1/logs'
+    # The generic endpoint would switch trace export on as well; the audit design has none.
+    assert 'OTEL_EXPORTER_OTLP_ENDPOINT' not in env
+    assert 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT' not in env
+
+
+def test_ai_jobs_service_selects_the_control_plane_only():
+    docs = render(*AI_OPTS)
+    dep = ai_of(docs, 'Deployment')
+    svc = ai_of(docs, 'Service')
+    assert svc['spec']['selector'] == dep['spec']['selector']['matchLabels']
+    port = svc['spec']['ports'][0]
+    assert port['port'] == 8080
+    container_ports = {p['name']: p['containerPort'] for p in dep['spec']['template']['spec']['containers'][0]['ports']}
+    assert container_ports[port['targetPort']] == 8080
+    assert [s for s in docs if s['kind'] == 'Service' and s['spec']['selector'] == svc['spec']['selector']] == [svc]
+
+
+def test_ai_jobs_ingress_policy_admits_only_open_webui_and_probes():
+    docs = render(*AI_OPTS)
+    policy = ai_of(docs, 'CiliumNetworkPolicy')
+    spec = policy['spec']
+    assert policy['metadata']['name'] == AI_NAME and 'namespace' not in policy['metadata']
+    assert spec['endpointSelector']['matchLabels'] == ai_of(docs, 'Deployment')['spec']['selector']['matchLabels']
+    assert 'egress' not in spec
+    web_labels = web(docs)['spec']['selector']['matchLabels']
+    first, second = spec['ingress']
+    assert first['fromEndpoints'] == [{'matchLabels': {**web_labels, 'k8s:io.kubernetes.pod.namespace': 'ai'}}]
+    assert second == {'fromEntities': ['host', 'remote-node'], 'toPorts': first['toPorts']}
+    assert first['toPorts'] == [{'ports': [{'port': '8080', 'protocol': 'TCP'}]}]
+
+
+def test_ai_jobs_network_policy_can_be_disabled():
+    docs = render(*RECALL_OPTS, '--set', 'aiJobs.networkPolicy.enabled=false')
+    assert sorted(d['kind'] for d in ai_objects(docs)) == ['ConfigMap', 'Deployment', 'Service', 'ServiceAccount']
+
+
+def test_no_profile_policy_until_a_profile_needs_one():
+    docs = render(*AI_OPTS)
+    assert [d for d in docs if d['metadata'].get('namespace') == 'ai-jobs'] == []
+
+
+def recall_policy(docs):
+    found = [d for d in docs if d['kind'] == 'CiliumNetworkPolicy' and d['metadata'].get('namespace') == 'ai-jobs']
+    assert len(found) == 1
+    return found[0]
+
+
+def test_recall_profile_policy_allows_exactly_dns_and_this_releases_hearthmem():
+    docs = render(*RECALL_OPTS)
+    policy = recall_policy(docs)
+    spec = policy['spec']
+    assert policy['metadata']['name'] == f'{AI_NAME}-memory-recall-v1'
+    # Nothing but an egress list: no ingress rules, no CIDRs, entities or names.
+    assert set(spec) == {'endpointSelector', 'egress'}
+    assert spec['endpointSelector'] == {'matchLabels': {'ai-jobs.hearthai/profile': 'memory-recall-v1'}}
+    dns, memory = spec['egress']
+    assert set(dns) == set(memory) == {'toEndpoints', 'toPorts'}
+    assert dns['toEndpoints'] == [{'matchLabels': {'k8s:io.kubernetes.pod.namespace': 'kube-system', 'k8s-app': 'kube-dns'}}]
+    assert dns['toPorts'] == [{'ports': [{'port': '53', 'protocol': 'UDP'}, {'port': '53', 'protocol': 'TCP'}]}]
+    # hearthmem: this release's pods, in this release's namespace, on the container's port.
+    hm = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'].endswith('-hearthmem'))
+    assert memory['toEndpoints'] == [{'matchLabels': {
+        **hm['spec']['selector']['matchLabels'], 'k8s:io.kubernetes.pod.namespace': 'ai'}}]
+    container_port = hm['spec']['template']['spec']['containers'][0]['ports'][0]['containerPort']
+    assert memory['toPorts'] == [{'ports': [{'port': str(container_port), 'protocol': 'TCP'}]}]
+
+
+def test_recall_profile_policy_follows_the_sandbox_namespace_and_hearthmem_naming():
+    docs = render(*RECALL_OPTS, '--set', 'aiJobs.sandboxNamespace=sbx,hearthmem.fullnameOverride=memory,hearthmem.nameOverride=mem')
+    policy = next(d for d in docs if d['kind'] == 'CiliumNetworkPolicy' and d['metadata']['name'].endswith('memory-recall-v1'))
+    assert policy['metadata']['namespace'] == 'sbx'
+    hm = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'memory')
+    assert policy['spec']['egress'][1]['toEndpoints'][0]['matchLabels'].items() >= hm['spec']['selector']['matchLabels'].items()
+    env = {e['name']: e['value'] for e in ai_of(docs, 'Deployment')['spec']['template']['spec']['containers'][0]['env']}
+    assert env['AI_JOBS_NAMESPACE'] == 'sbx'
+    assert env['AI_JOBS_HEARTHMEM_URL'] == 'http://memory.ai.svc:80'
+
+
+def test_hearthmem_url_names_this_releases_service():
+    docs = render(*AI_OPTS)
+    env = {e['name']: e['value'] for e in ai_of(docs, 'Deployment')['spec']['template']['spec']['containers'][0]['env']}
+    hm_dep = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'].endswith('-hearthmem'))
+    svc = next(d for d in docs if d['kind'] == 'Service'
+               and d['spec']['selector'] == hm_dep['spec']['selector']['matchLabels'])
+    assert env['AI_JOBS_HEARTHMEM_URL'] == f"http://{svc['metadata']['name']}.ai.svc:{svc['spec']['ports'][0]['port']}"
+
+
+def test_profile_label_matches_what_the_executor_puts_on_pods():
+    # The policy selects on a label ai_jobs.sandbox sets; if either side is renamed the policy
+    # would silently select nothing.
+    sandbox = (SERVICE_SRC / 'sandbox.py').read_text()
+    profiles = (SERVICE_SRC / 'profiles.py').read_text()
+    assert 'PROFILE_LABEL = "ai-jobs.hearthai/profile"' in sandbox
+    assert 'name="memory-recall-v1"' in profiles
+    assert 'NAMESPACE = "ai-jobs"' in sandbox
+    assert yaml.safe_load((CHART / 'values.yaml').read_text())['aiJobs']['sandboxNamespace'] == 'ai-jobs'
+
+
+def test_profiles_record_lists_enabled_profiles():
+    def profiles(*opts):
+        return json.loads(ai_of(render(*opts), 'ConfigMap')['data']['profiles.json'])
+    assert profiles(*AI_OPTS) == {'sandboxNamespace': 'ai-jobs', 'profiles': ['noop-v1']}
+    assert profiles(*RECALL_OPTS)['profiles'] == ['noop-v1', 'memory-recall-v1']
+
+
+@pytest.mark.parametrize('setting', [
+    'aiJobs.sandboxNamespace=Not_A_Namespace', 'aiJobs.sandboxNamespace=',
+    'aiJobs.otel.logsEndpoint=ftp://logs.example', 'aiJobs.callerKeysKey=',
+    'aiJobs.image.pullPolicy=Sometimes', 'aiJobs.enabled=yes-please',
+])
+def test_invalid_ai_jobs_inputs(setting):
+    render('--set', setting, success=False)

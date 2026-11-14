@@ -1,0 +1,99 @@
+# Stand-in for what home-ops provides before ai-jobs may be enabled (package A5,
+# kubernetes/apps/ai/ai-jobs/app/ in home-ops, and the "Sandbox namespace" table in the spec).
+# Copied here so the chart can be tested without home-ops; if home-ops changes these objects,
+# change this file with it. The CiliumNetworkPolicy is applied (the stub CRD admits it) but
+# kind does not enforce it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-jobs
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ai-jobs
+  namespace: ai-jobs
+spec:
+  hard:
+    pods: "4"
+    requests.cpu: "1"
+    requests.memory: 1Gi
+    limits.memory: 2Gi
+    count/sandboxes.agents.x-k8s.io: "8"
+    count/secrets: "16"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: ai-jobs
+  namespace: ai-jobs
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 256Mi
+      max:
+        cpu: 500m
+        memory: 256Mi
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: default-deny
+  namespace: ai-jobs
+spec:
+  endpointSelector: {}
+  ingress:
+    - {}
+  egress:
+    - {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: ai-jobs
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ai-jobs-executor
+  namespace: ai-jobs
+rules:
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxes"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ai-jobs-executor
+  namespace: ai-jobs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ai-jobs-executor
+subjects:
+  - kind: ServiceAccount
+    name: hearthai-ai-jobs
+    namespace: ai

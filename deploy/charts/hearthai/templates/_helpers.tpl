@@ -142,3 +142,50 @@ Caddy substitutes {$LOCAL_UPSTREAM_URL} from the pod environment at load time.
   }
 }
 {{- end -}}
+
+{{/*
+ai-jobs: the control plane that runs model-callable tools as one sandbox per run.
+Everything below is only evaluated when aiJobs.enabled.
+*/}}
+{{- define "hearthai.aiJobs.name" -}}
+{{- printf "%s-ai-jobs" (include "hearthai.fullname" .) -}}
+{{- end -}}
+
+{{- define "hearthai.aiJobs.selectorLabels" -}}
+app.kubernetes.io/name: ai-jobs
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
+
+{{- define "hearthai.aiJobs.labels" -}}
+{{ include "hearthai.commonLabels" . }}
+{{ include "hearthai.aiJobs.selectorLabels" . }}
+{{- end -}}
+
+{{- define "hearthai.aiJobs.image" -}}
+{{- printf "%s:%s" .Values.aiJobs.image.repository (default .Chart.AppVersion .Values.aiJobs.image.tag) -}}
+{{- end -}}
+
+{{/*
+The bundled hearthmem subchart's own helpers, evaluated with the subchart's context so the
+Service name and pod labels can never drift from what the subchart renders.
+*/}}
+{{- define "hearthai.aiJobs.hearthmemContext" -}}
+{{- dict "Chart" (dict "Name" "hearthmem") "Release" .Release "Values" .Values.hearthmem | toJson -}}
+{{- end -}}
+
+{{- define "hearthai.aiJobs.hearthmemService" -}}
+{{- include "hearthmem.fullname" (include "hearthai.aiJobs.hearthmemContext" . | fromJson) -}}
+{{- end -}}
+
+{{/* In-cluster URL of this release's hearthmem, written so it resolves from another namespace. */}}
+{{- define "hearthai.aiJobs.hearthmemUrl" -}}
+{{- printf "http://%s.%s.svc:%v" (include "hearthai.aiJobs.hearthmemService" .) .Release.Namespace .Values.hearthmem.service.port -}}
+{{- end -}}
+
+{{- define "hearthai.aiJobs.enabledProfiles" -}}
+{{- $profiles := list "noop-v1" -}}
+{{- if .Values.aiJobs.profiles.memoryRecall.enabled -}}
+{{- $profiles = append $profiles "memory-recall-v1" -}}
+{{- end -}}
+{{- $profiles | toJson -}}
+{{- end -}}

@@ -7,6 +7,13 @@ the intended trade for not holding a credential we would have to protect.
 
 Knowing a token is the whole of access control at this stage. It is a bearer
 capability: it can be passed on, and it cannot be taken back.
+
+A store may also have one read token, minted with the write token. It can
+describe and search the store and nothing else. The service keeps only its
+digest, as a pointer file ``readers/<sha256(read token)>`` holding the name of
+the store directory, so a presented read token finds its store without scanning
+every store. The store directory holds ``reader`` with the current read digest,
+which lets a new mint remove the old pointer. Both live in the git tree.
 """
 
 from __future__ import annotations
@@ -33,6 +40,10 @@ class InvalidRequest(ValueError):
     pass
 
 
+class ReadOnlyToken(PermissionError):
+    """A read token was presented where a write token is required."""
+
+
 def token_digest(token: str) -> str:
     return hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
 
@@ -54,7 +65,9 @@ class MemoryStore:
     def __init__(self, root: Path):
         self.root = Path(root)
         self.stores = self.root / "stores"
+        self.readers = self.root / "readers"
         self.stores.mkdir(parents=True, exist_ok=True)
+        self.readers.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._git_init()
 
@@ -85,11 +98,43 @@ class MemoryStore:
             self._git("commit", "-q", "-m", message)
 
     # ---- stores ----------------------------------------------------------
-    def _dir_for(self, token: str) -> Path:
-        path = self.stores / token_digest(token)
-        if not path.is_dir():
-            raise StoreNotFound("no store matches that token")
-        return path
+    def _dir_for(self, token: str, write: bool = False) -> Path:
+        """Find the store a token opens.
+
+        A write token always works. A read token works only when ``write`` is
+        false; presenting one for a write raises ReadOnlyToken.
+        """
+        digest = token_digest(token)
+        path = self.stores / digest
+        if path.is_dir():
+            return path
+        pointer = self.readers / digest
+        if pointer.is_file():
+            target = self.stores / pointer.read_text(encoding="utf-8").strip()
+            if target.is_dir():
+                if write:
+                    raise ReadOnlyToken("this token is read-only")
+                return target
+        raise StoreNotFound("no store matches that token")
+
+    def mint_read_token(self, token: str) -> str:
+        """Mint the store's read token, revoking any previous one.
+
+        Requires the write token. The read token is returned once and never kept.
+        """
+        with self._lock:
+            path = self._dir_for(token, write=True)
+            read_token = secrets.token_urlsafe(TOKEN_BYTES)
+            digest = token_digest(read_token)
+            marker = path / "reader"
+            if marker.is_file():
+                (self.readers / marker.read_text(encoding="utf-8").strip()).unlink(
+                    missing_ok=True
+                )
+            (self.readers / digest).write_text(path.name + "\n", encoding="utf-8")
+            marker.write_text(digest + "\n", encoding="utf-8")
+            self._commit("rotate read token")
+        return read_token
 
     def create_store(self, purpose: str, author: str) -> dict:
         purpose = (purpose or "").strip()
@@ -118,6 +163,7 @@ class MemoryStore:
 
     # ---- entries ---------------------------------------------------------
     def add_entry(self, token: str, content: str, author: str, tags=None) -> dict:
+        self._dir_for(token, write=True)
         content = (content or "").strip()
         if not content:
             raise InvalidRequest("an entry needs content")
@@ -125,7 +171,7 @@ class MemoryStore:
         tags = [str(t).strip() for t in (tags or []) if str(t).strip()]
 
         with self._lock:
-            path = self._dir_for(token)
+            path = self._dir_for(token, write=True)
             digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
             for existing in sorted((path / "entries").glob("*.md")):
