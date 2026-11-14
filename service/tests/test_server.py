@@ -133,3 +133,57 @@ def test_sigterm_drains_instead_of_hanging(tmp_path):
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=5)
+
+
+def _get(base, path, token):
+    request = urllib.request.Request(base + path, method="GET", headers={"X-Store-Token": token})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
+def _send(base, method, path, token, payload=None):
+    request = urllib.request.Request(
+        base + path, method=method,
+        data=json.dumps(payload).encode() if payload is not None else None,
+        headers={"Content-Type": "application/json", "X-Store-Token": token},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
+def test_read_token_over_http(base):
+    _, store = call(base, "POST", "/stores", {"purpose": "Family", "author": "alice"})
+    write = store["token"]
+    assert _send(base, "POST", "/stores/-/entries", write,
+                 {"content": "Bin day is Wednesday", "author": "alice"})[0] == 201
+
+    code, minted = _send(base, "POST", "/stores/-/read-token", write)
+    assert code == 201
+    read = minted["read_token"]
+
+    code, described = _get(base, "/stores/-", read)
+    assert code == 200 and described["entry_count"] == 1
+    assert read not in json.dumps(described) and write not in json.dumps(described)
+    code, found = _get(base, "/stores/-/entries?q=bin", read)
+    assert code == 200 and len(found["entries"]) == 1
+
+    # Writes and minting are refused with a fixed message.
+    code, body = _send(base, "POST", "/stores/-/entries", read,
+                       {"content": "planted", "author": "mallory"})
+    assert (code, body) == (403, {"error": "this token is read-only"})
+    code, body = _send(base, "POST", "/stores/-/read-token", read)
+    assert (code, body) == (403, {"error": "this token is read-only"})
+    assert _get(base, "/stores/-", write)[1]["entry_count"] == 1
+
+    # Rotation revokes the old token at once; the write token is unaffected.
+    new = _send(base, "POST", "/stores/-/read-token", write)[1]["read_token"]
+    assert _get(base, "/stores/-", read)[0] == 404
+    assert _get(base, "/stores/-", new)[0] == 200
+    assert _send(base, "POST", "/stores/-/entries", write,
+                 {"content": "more", "author": "alice"})[0] == 201

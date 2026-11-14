@@ -24,6 +24,7 @@ from typing import Any, Callable, Mapping
 from ai_jobs.contracts import (
     ContractError,
     require_exact_fields,
+    require_list,
     require_object,
     require_string,
 )
@@ -41,6 +42,19 @@ class Trust(StrEnum):
     """Describes fetched data. It grants nothing."""
 
     EXTERNAL_UNTRUSTED = "external_untrusted"
+
+
+class SharedTrust(StrEnum):
+    """Trust values for data the household wrote itself. It grants nothing either.
+
+    Kept apart from :class:`Trust` because ``Trust`` mirrors the shared envelope schema in
+    ``service/web_fetch/schemas``, which the Rust side also reads. An envelope carries exactly
+    the one trust value its tool declares (see ``Envelope.from_dict``), so a web fetch can
+    never claim this one.
+    """
+
+    #: Written by household members: not external, and still not instructions.
+    HOUSEHOLD_SHARED = "household_shared"
 
 
 class InspectionStatus(StrEnum):
@@ -73,6 +87,28 @@ ERROR_MESSAGES: Mapping[ErrorCode, str] = {
     ErrorCode.DEADLINE_EXCEEDED: "The request did not complete within its deadline.",
     ErrorCode.INTERNAL_ERROR: "The tool could not complete this request.",
 }
+
+#: ``household_shared`` data is read from the household's own store, not inspected, so a
+#: successful one reports ``not_run`` with no policy, and only these failure codes apply.
+_HOUSEHOLD_CODES = frozenset(
+    {
+        ErrorCode.RESPONSE_LIMIT_EXCEEDED,
+        ErrorCode.FETCH_FAILED,
+        ErrorCode.DEADLINE_EXCEEDED,
+        ErrorCode.INTERNAL_ERROR,
+    }
+)
+
+#: Limits for the ``household_shared`` recall payload. The worker enforces them when it builds
+#: the data and ``validate_recall_data`` enforces them again on the control plane.
+RECALL_MAX_QUERY_CHARS = 500
+RECALL_MAX_ENTRIES = 10
+RECALL_MAX_CONTENT_CHARS = 4_000
+RECALL_MAX_TOTAL_CONTENT_CHARS = 12_000
+RECALL_MAX_AUTHOR_CHARS = 100
+RECALL_MAX_CREATED_AT_CHARS = 40
+RECALL_MAX_TAGS = 10
+RECALL_MAX_TAG_CHARS = 50
 
 #: Only ``content_rejected`` is a rejection; everything else is a tool error.
 _REJECTION_CODES = frozenset({ErrorCode.CONTENT_REJECTED})
@@ -153,7 +189,7 @@ class Envelope:
     tool: str
     tool_version: int
     status: Status
-    trust: Trust
+    trust: Trust | SharedTrust
     inspection: Inspection
     data: Any | None
     error: EnvelopeError | None
@@ -172,13 +208,36 @@ class Envelope:
         )
 
     @classmethod
-    def failure(cls, tool: str, tool_version: int, code: ErrorCode, inspection: Inspection) -> "Envelope":
+    def ok_household(cls, tool: str, tool_version: int, data: Any) -> "Envelope":
+        """A successful ``household_shared`` result: read from the household store, not inspected."""
+        envelope = cls(
+            envelope_version=ENVELOPE_VERSION,
+            tool=tool,
+            tool_version=tool_version,
+            status=Status.OK,
+            trust=SharedTrust.HOUSEHOLD_SHARED,
+            inspection=Inspection(InspectionStatus.NOT_RUN, None),
+            data=data,
+            error=None,
+        )
+        _check(envelope, None)
+        return envelope
+
+    @classmethod
+    def failure(
+        cls,
+        tool: str,
+        tool_version: int,
+        code: ErrorCode,
+        inspection: Inspection,
+        trust: Trust | SharedTrust = Trust.EXTERNAL_UNTRUSTED,
+    ) -> "Envelope":
         envelope = cls(
             envelope_version=ENVELOPE_VERSION,
             tool=tool,
             tool_version=tool_version,
             status=status_for(code),
-            trust=Trust.EXTERNAL_UNTRUSTED,
+            trust=trust,
             inspection=inspection,
             data=None,
             error=EnvelopeError.for_code(code),
@@ -194,8 +253,12 @@ class Envelope:
         tool: str,
         tool_version: int,
         payload: PayloadValidator | None = None,
+        trust: Trust | SharedTrust = Trust.EXTERNAL_UNTRUSTED,
     ) -> "Envelope":
-        """Parse and validate an envelope for one named tool and version."""
+        """Parse and validate an envelope for one named tool and version.
+
+        ``trust`` is the one trust value that tool's envelopes carry; any other is refused.
+        """
         data = require_object(value, "envelope")
         require_exact_fields(
             data,
@@ -217,9 +280,11 @@ class Envelope:
             )
         try:
             status = Status(require_string(data["status"], "envelope.status", 32))
-            trust = Trust(require_string(data["trust"], "envelope.trust", 32))
+            carried_trust = _parse_trust(require_string(data["trust"], "envelope.trust", 32))
         except ValueError as exc:
             raise ContractError("envelope status or trust is not a known value") from exc
+        if carried_trust is not trust:
+            raise ContractError(f"envelope trust is not {trust.value}")
         inspection = Inspection.from_dict(data["inspection"])
         error = None if data["error"] is None else EnvelopeError.from_dict(data["error"])
         envelope = cls(
@@ -227,7 +292,7 @@ class Envelope:
             tool=tool_key,
             tool_version=carried_version,
             status=status,
-            trust=trust,
+            trust=carried_trust,
             inspection=inspection,
             data=data["data"],
             error=error,
@@ -251,10 +316,33 @@ class Envelope:
         }
 
 
+def _parse_trust(value: str) -> Trust | SharedTrust:
+    for family in (Trust, SharedTrust):
+        try:
+            return family(value)
+        except ValueError:
+            continue
+    raise ValueError(value)
+
+
 def _check(envelope: Envelope, payload: PayloadValidator | None) -> None:
+    household = envelope.trust is SharedTrust.HOUSEHOLD_SHARED
+    if household:
+        if envelope.inspection.status not in (InspectionStatus.NOT_RUN, InspectionStatus.FAILED) or (
+            envelope.inspection.policy_id is not None
+        ):
+            raise ContractError("household_shared data is not inspected: not_run with no policy")
+        if envelope.error is not None and envelope.error.code not in _HOUSEHOLD_CODES:
+            raise ContractError(f"{envelope.error.code.value} cannot accompany household_shared data")
     if envelope.status is Status.OK:
         if envelope.data is None or envelope.error is not None:
             raise ContractError("ok requires non-null data and null error")
+        if household:
+            if envelope.inspection.status is not InspectionStatus.NOT_RUN:
+                raise ContractError("household_shared data reports an inspection that did not run")
+            if payload is not None:
+                payload(envelope.data)
+            return
         if envelope.inspection.status is not InspectionStatus.NO_MATCH:
             raise ContractError("ok requires a completed no_match inspection")
         if envelope.inspection.policy_id is None:
@@ -281,3 +369,28 @@ def _is_policy_id(value: str) -> bool:
     return bool(value) and all(
         ("a" <= character <= "z") or ("0" <= character <= "9") or character in "-_." for character in value
     )
+
+
+def validate_recall_data(value: object) -> dict[str, object]:
+    """The ``household_shared`` recall payload: at most ten entries, each with four fields.
+
+    Size limits are per entry and in total, so a store full of long notes cannot turn one
+    recall into an unbounded block of model context.
+    """
+    data = require_object(value, "data")
+    require_exact_fields(data, {"entries"}, "data")
+    entries = require_list(data["entries"], "data.entries", RECALL_MAX_ENTRIES)
+    total = 0
+    for index, item in enumerate(entries):
+        path = f"data.entries[{index}]"
+        entry = require_object(item, path)
+        require_exact_fields(entry, {"content", "author", "created_at", "tags"}, path)
+        content = require_string(entry["content"], f"{path}.content", RECALL_MAX_CONTENT_CHARS)
+        total += len(content)
+        require_string(entry["author"], f"{path}.author", RECALL_MAX_AUTHOR_CHARS, allow_empty=True)
+        require_string(entry["created_at"], f"{path}.created_at", RECALL_MAX_CREATED_AT_CHARS, allow_empty=True)
+        for tag in require_list(entry["tags"], f"{path}.tags", RECALL_MAX_TAGS):
+            require_string(tag, f"{path}.tags[]", RECALL_MAX_TAG_CHARS)
+    if total > RECALL_MAX_TOTAL_CONTENT_CHARS:
+        raise ContractError(f"data.entries content must total at most {RECALL_MAX_TOTAL_CONTENT_CHARS} characters")
+    return dict(data)
