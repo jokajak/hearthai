@@ -142,9 +142,10 @@ def proxy(docs):
 
 
 def test_exact_home_ops_catalogue():
-    # Source: home-ops 6221eb6, app/configmap.yaml data.config.yaml.
+    # Source: home-ops 6221eb6, app/configmap.yaml data.config.yaml, plus the
+    # router_settings.enable_pre_call_checks block added for plan I7.
     raw = (CHART / 'files/litellm-config.yaml').read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == 'ad67fa2a12dd671629f9b10df69110a42484cc561232897d46c4cac59f4c0c09'
+    assert hashlib.sha256(raw).hexdigest() == '2db4fce6fc0facd5418906eb9b780b0020ba0bf892330b2a026c1f108859711a'
     docs = render()
     rendered = next(d['data']['config.yaml'] for d in docs if d['kind'] == 'ConfigMap' and 'config.yaml' in d['data'])
     assert rendered == bundled_config()
@@ -606,3 +607,18 @@ def test_gate_image_is_fully_qualified_for_renovate():
     image = gate_of(render(*GATE_OPTS), 'Deployment')['spec']['template']['spec']['containers'][0]['image']
     assert image == yaml.safe_load((CHART / 'values.yaml').read_text())['localInference']['gate']['image']
     assert image.startswith('docker.io/library/caddy:')
+
+
+@pytest.mark.parametrize('opts', [[], LOCAL_OPTS], ids=['disabled', 'enabled'])
+def test_pre_call_context_check_enabled_without_fallbacks(opts):
+    # Name confirmed at LiteLLM v1.106.6 (Router.__init__). The check refuses an
+    # oversized prompt only while no fallback exists, so both must hold together.
+    cfg = litellm_config(render(*opts))
+    assert cfg['router_settings']['enable_pre_call_checks'] is True
+    assert rerouting_violations(cfg) == []
+
+
+def test_local_model_declares_the_limit_the_check_uses():
+    models = litellm_config(render(*LOCAL_OPTS))['model_list']
+    local = next(m for m in models if m['model_name'] == 'local-qwen')
+    assert local['model_info']['max_input_tokens'] == 32768

@@ -153,3 +153,13 @@ litellm_settings:
   num_retries: 2
   # Agent turns with large tool payloads are slow; the default is too tight.
   request_timeout: 600
+
+router_settings:
+  # Refuse a request whose prompt exceeds a deployment's model_info
+  # max_input_tokens (ContextWindowExceededError) instead of letting the
+  # backend truncate it silently. A Router init argument: read at startup, so
+  # changing it needs a LiteLLM restart. Only deployments that declare
+  # max_input_tokens are checked (the local lane does). It refuses cleanly only
+  # while no fallback exists; the chart tests forbid fallbacks. Confirmed at
+  # LiteLLM v1.106.6 litellm/router.py (__init__ enable_pre_call_checks).
+  enable_pre_call_checks: true
