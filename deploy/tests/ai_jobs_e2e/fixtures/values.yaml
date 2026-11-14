@@ -1,0 +1,34 @@
+# Release values for the kind end-to-end run. Only ai-jobs and hearthmem are exercised, so
+# everything else that needs Secrets, a database or a large image is switched off or stubbed:
+# LiteLLM, Meridian and Postgres are disabled, and "Open WebUI" runs the tiny pause image (it
+# never becomes Ready; nothing here depends on it, and kind enforces no network policy anyway).
+url: https://chat.example.com
+sessionSecret:
+  name: e2e-unused
+llm:
+  baseUrl: http://unused.invalid:4000/v1
+  apiKeySecret:
+    name: e2e-unused
+auth:
+  mode: oidc
+  oidc:
+    discoveryUrl: https://auth.example.com/.well-known/openid-configuration
+    credentialsSecret:
+      name: e2e-unused
+litellm:
+  enabled: false
+meridian:
+  enabled: false
+postgres:
+  enabled: false
+ingress:
+  enabled: false
+openwebui:
+  image:
+    repository: registry.k8s.io/pause
+    tag: "3.10"
+  persistence:
+    enabled: false
+hearthmem:
+  persistence:
+    enabled: false

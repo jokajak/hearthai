@@ -263,6 +263,96 @@
           }
         }
       }
+    },
+    "aiJobs": {
+      "type": "object",
+      "description": "Isolated tool control plane: each model-callable tool runs in one short-lived sandbox pod. Off by default.",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string"
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ]
+            }
+          }
+        },
+        "sandboxNamespace": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$",
+          "description": "Namespace the sandboxes run in; created and locked down outside this chart."
+        },
+        "existingSecret": {
+          "type": "string",
+          "description": "Secret with the caller keys file and memory_recall_read_token. Required when enabled."
+        },
+        "callerKeysKey": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Key of existingSecret holding the JSON object {\"<bearer key>\": \"<caller id>\"}."
+        },
+        "profiles": {
+          "type": "object",
+          "properties": {
+            "memoryRecall": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "otel": {
+          "type": "object",
+          "properties": {
+            "serviceName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "logsEndpoint": {
+              "type": "string",
+              "pattern": "^$|^https?://[^\\s;]+$",
+              "description": "OTLP/HTTP logs endpoint for audit records. Empty exports nothing."
+            }
+          }
+        },
+        "networkPolicy": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "resources": {
+          "type": "object"
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        }
+      }
     }
   }
 }

@@ -193,3 +193,53 @@ meridian:
       memory: 128Mi
     limits:
       memory: 1Gi
+
+# Isolated tool control plane (ai-jobs): model-callable tools that each run in one
+# short-lived agent-sandbox pod. Off by default; enabling it needs the home-ops sandbox
+# namespace first (see deploy/README.md, "ai-jobs"), because the default-deny policy that
+# contains the sandbox pods is read from the live cluster.
+aiJobs:
+  enabled: false
+  image:
+    # One image for the control plane and for every sandbox worker.
+    repository: ghcr.io/jokajak/ai-jobs
+    # Defaults to .Chart.AppVersion when empty.
+    tag: ""
+    pullPolicy: IfNotPresent
+  # Namespace the sandboxes run in. It is created and locked down outside this chart
+  # (Pod Security restricted, quota, default-deny); this chart only renders the
+  # per-profile egress policies into it.
+  sandboxNamespace: ai-jobs
+  # Existing Secret in the release namespace. Required keys:
+  #   <callerKeysKey>           JSON object {"<bearer key>": "<caller id>"}, keys >= 32 characters
+  #   memory_recall_read_token  a hearthmem READ token (never the store's write token)
+  # The control plane reads the token file at startup whether or not the recall profile is
+  # enabled below, so the key must exist either way.
+  existingSecret: ""
+  callerKeysKey: caller-keys.json
+  # Profiles. noop-v1 needs no network and renders nothing. A profile's egress policy is what
+  # lets its sandbox reach anything at all: without it the namespace's default-deny holds.
+  profiles:
+    memoryRecall:
+      # Renders the CiliumNetworkPolicy that lets memory-recall-v1 sandboxes reach DNS and this
+      # release's hearthmem, and nothing else.
+      enabled: false
+  # Audit export (OpenTelemetry logs over OTLP/HTTP). Empty exports nothing; every audit
+  # record is still written to stdout. Only the logs endpoint exists on purpose: the generic
+  # OTEL_EXPORTER_OTLP_ENDPOINT would also start exporting traces.
+  otel:
+    serviceName: ai-jobs
+    logsEndpoint: ""
+  networkPolicy:
+    # Requires Cilium. Control plane: ingress from this release's Open WebUI and node probes
+    # only. Sandbox namespace: one egress policy per enabled profile.
+    enabled: true
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

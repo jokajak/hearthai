@@ -1,0 +1,194 @@
+{{- if .Values.aiJobs.enabled }}
+{{- $ai := .Values.aiJobs }}
+{{- $secret := required "aiJobs.enabled=true requires aiJobs.existingSecret" $ai.existingSecret }}
+{{- $name := include "hearthai.aiJobs.name" . }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hearthai.aiJobs.labels" . | nindent 4 }}
+---
+# A record of the profile set this release enables, for people reading the cluster. ai-jobs
+# wires its profiles from its environment and does not read this file; the egress policies
+# rendered next to it (ai-jobs-sandbox-policy.yaml) are the enforced counterpart.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hearthai.aiJobs.labels" . | nindent 4 }}
+data:
+  profiles.json: |
+    {{- dict "sandboxNamespace" $ai.sandboxNamespace "profiles" (include "hearthai.aiJobs.enabledProfiles" . | fromJsonArray) | toPrettyJson | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hearthai.aiJobs.labels" . | nindent 4 }}
+spec:
+  # The run store is in memory (spec E4): a second replica would not know the first one's runs.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "hearthai.aiJobs.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hearthai.aiJobs.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/profiles: {{ include "hearthai.aiJobs.enabledProfiles" . | sha256sum }}
+    spec:
+      # The one pod in this release that talks to the API server (it creates the sandboxes), so
+      # it is the one pod whose service-account token is mounted. Its Role lives in the sandbox
+      # namespace and is created outside this chart.
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ai-jobs
+          image: {{ include "hearthai.aiJobs.image" . | quote }}
+          imagePullPolicy: {{ $ai.image.pullPolicy }}
+          args: ["serve"]
+          env:
+            - name: AI_JOBS_CALLER_KEYS_FILE
+              value: /etc/ai-jobs/callers/caller-keys.json
+            - name: AI_JOBS_CREDENTIALS_DIR
+              value: /run/ai-jobs/credentials
+            # Sandboxes run this same image with the worker command from their profile.
+            - name: AI_JOBS_IMAGE
+              value: {{ include "hearthai.aiJobs.image" . | quote }}
+            - name: AI_JOBS_HEARTHMEM_URL
+              value: {{ include "hearthai.aiJobs.hearthmemUrl" . | quote }}
+            - name: AI_JOBS_NAMESPACE
+              value: {{ $ai.sandboxNamespace | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ $ai.otel.serviceName | quote }}
+            {{- with $ai.otel.logsEndpoint }}
+            - name: OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $ai.resources | nindent 12 }}
+          volumeMounts:
+            - name: callers
+              mountPath: /etc/ai-jobs/callers
+              readOnly: true
+            - name: credentials
+              mountPath: /run/ai-jobs/credentials
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      {{- with $ai.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $ai.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $ai.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        # The same Secret twice, each with only the key that mount needs: the caller keys are
+        # not in the directory profiles resolve credentials from.
+        - name: callers
+          secret:
+            secretName: {{ $secret | quote }}
+            defaultMode: 288 # 0440: group-readable for fsGroup
+            items:
+              - key: {{ $ai.callerKeysKey | quote }}
+                path: caller-keys.json
+        - name: credentials
+          secret:
+            secretName: {{ $secret | quote }}
+            defaultMode: 288 # 0440: group-readable for fsGroup
+            items:
+              - key: memory_recall_read_token
+                path: memory_recall_read_token
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hearthai.aiJobs.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "hearthai.aiJobs.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- if $ai.networkPolicy.enabled }}
+---
+# Who may reach the control plane: this release's Open WebUI, and the node's own probes.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hearthai.aiJobs.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "hearthai.aiJobs.selectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            {{- include "hearthai.web.selectorLabels" . | nindent 12 }}
+            k8s:io.kubernetes.pod.namespace: {{ .Release.Namespace }}
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    - fromEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+{{- end }}
+{{- end }}
