@@ -66,7 +66,7 @@ itself is never written to disk.
 This is a bearer capability, and it is the whole of access control:
 
 - anyone holding the token has full read and write access
-- it cannot be revoked, because there is nothing recording who holds it
+- it cannot be revoked (the read token, below, can be rotated), because there is nothing recording who holds it
 - attribution is self-asserted — an entry says who wrote it because the caller said so
 
 Reasonable among people who already trust each other, which is who this is for. It is not
@@ -87,8 +87,16 @@ the token crosses the network in clear text.
 | `GET /stores/{token}` | store metadata and entry count |
 | `POST /stores/{token}/entries` | `{content, author, tags}`; `201` for new, `200` if identical content already exists |
 | `GET /stores/{token}/entries?q=&limit=` | search by overlapping terms across content and tags |
+| `POST /stores/{token}/read-token` | write token only → `{read_token}`, shown once; replaces any previous read token, which stops working at once |
 
 The token may also be sent as an `X-Store-Token` header instead of in the path.
+
+A store may have one **read token**. It works on the two `GET` routes above and nothing
+else: add-entry and mint answer `403` with `{"error": "this token is read-only"}`. The
+service keeps only `sha256(read token)`, as a pointer file `readers/<digest>` naming the
+store directory, so a presented read token finds its store without scanning. It is meant
+for software that should only recall (the recall worker), so a compromised one cannot
+plant entries.
 
 ## Behaviour worth knowing
 
@@ -104,9 +112,12 @@ The token may also be sent as an `X-Store-Token` header instead of in the path.
 
 ```
 data/
+  readers/
+    <sha256-of-read-token>  # pointer: the store directory it opens
   stores/
     <sha256-of-token>/
       store.md              # purpose, created_at, created_by
+      reader                # digest of the current read token, if any
       entries/
         2026-08-24-bin-collection-moved.md
 ```
