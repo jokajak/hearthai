@@ -139,7 +139,15 @@ Status values: `todo`, `running`, `review`, `ready for owner`, `merged`, `blocke
 | H7 | Ingress timeouts for the gateway | home-ops | executor | `plan/h7-llm-ingress` | G3 | todo |
 | S1 | Spec: automatic router (plan M3) | hearthai | orchestrator | `plan/spec-router` | G3 | todo |
 | S2 | Spec: personas at the gateway (plan I11) | hearthai | orchestrator | `plan/spec-personas` | S1 merged | todo |
-| S3 | Spec: executor, memory tools, lane gate (plan M6) | hearthai | orchestrator | `plan/spec-ai-jobs` | G3 | review: spec awaiting G5 (owner released S3 from G3 on 2026-11-14; nothing in it needs the laptop) |
+| S3 | Spec: executor, memory tools, lane gate (plan M6) | hearthai | orchestrator | `plan/spec-ai-jobs` | G3 | approved with E4 = OpenTelemetry (owner, 2026-11-14): [hearthai#19](https://github.com/jokajak/hearthai/pull/19) |
+| A1 | hearthmem read-only tokens | hearthai | executor | `plan/a1-hearthmem-read-tokens` | S3 | todo |
+| A2 | Executor on agent-sandbox, OTel audit, no-op profile | hearthai | executor | `plan/a2-executor` | S3 | todo |
+| A3 | HTTP surface, `memory_recall` tool and worker | hearthai | executor | `plan/a3-recall` | A1, A2 | todo |
+| A4 | `ai-jobs` image, chart behind `aiJobs.enabled`, kind end-to-end | hearthai | executor | `plan/a4-chart` | A3 | todo |
+| A5 | agent-sandbox controller and sandbox namespace | home-ops | executor | `plan/a5-sandbox-namespace` | S3 | todo |
+| A6 | Enable `aiJobs` with `noop-v1` | home-ops | executor | `plan/a6-enable-ai-jobs` | A4 merged, A5 live | todo |
+| A7 | Recall exposed in Open WebUI | hearthai, home-ops | executor | `plan/a7-recall-exposed` | A6 live, P3 merged, owner steps | todo |
+| A8 | gVisor runtime class | home-ops | executor | `plan/a8-gvisor` | S3 | todo |
 
 V1 to V3 can run in parallel. P1a to P1d are sequential on one branch and merge as one pull
 request; do not open it until P1c and P1d pass, because they are the only evidence for what the
@@ -581,6 +589,169 @@ icon is not lost. One comment explaining the reason.
 **Acceptance:** `task k8s:flate`, `yamllint kubernetes/apps/ai/hearthai`.
 
 ---
+
+## Packages from S3 (ai-jobs executor and recall)
+
+Spec: [`specs/2026-11-14-ai-jobs-executor-and-recall-design.md`](../specs/2026-11-14-ai-jobs-executor-and-recall-design.md).
+Decisions E1–E9 there are settled; briefs do not reopen them. agent-sandbox source at the pinned tag
+(v1.0.9) is the reference for every `Sandbox` field name.
+
+### A1. hearthmem read-only tokens
+
+**Why:** a store token today reads and writes. A recall pod must hold a credential that can only
+read, so a compromised or confused worker cannot plant entries that later reach every chat (E5).
+
+**Do:** in `service/hearthmem/store.py` and `server.py`:
+- A store may have one read token. `POST /stores/-/read-token` with the store's **write** token in
+  `X-Store-Token` mints a new one (32 random bytes, `token_urlsafe`), returns it once, and replaces
+  any previous one, which stops working at once. The service keeps only `sha256(read_token)`,
+  never the token, in a form that lets it find the store from a presented read token without
+  scanning every store (for example a pointer file named by the read digest; keep it inside the
+  git-backed tree and committed like the rest).
+- Presenting a read token: `GET` describe and `GET` search work as with the write token. Every
+  write route (add entry, mint read token) answers `403` with a fixed message. A read token is
+  never accepted where a write token is required, and a write token keeps all its rights.
+- `describe` never reveals either token or any digest.
+- The CLI `skills/shared-memory/scripts/hearthmem` gains `read-token <store>`, which mints one and
+  prints it with a one-line warning that minting again revokes the previous one. Update
+  `skills/shared-memory/SKILL.md` and `service/README.md` (API table) in the same style.
+
+**Tests** in `service/tests/`: mint, read with it (describe, search), refused on add-entry and on
+mint (403), rotation revokes the old token, write token unaffected, nothing token-like or
+digest-like in `describe`, a read token for store A finds nothing in store B, and the stored data
+contains no read token in clear (grep the data directory).
+
+**Files:** `service/hearthmem/store.py`, `service/hearthmem/server.py`, `service/tests/test_store.py`,
+`service/tests/test_server.py`, `skills/shared-memory/scripts/hearthmem`,
+`skills/shared-memory/SKILL.md`, `service/README.md`.
+
+**Acceptance:** from `service/`: `uv run --no-project --with 'pytest>=8,<10' python -m pytest tests -q`.
+All existing tests pass unmodified.
+
+**Report additionally:** the hearthmem image is versioned by the release workflow from a git tag;
+say what the owner must do to release this change (read `.github/workflows/release.yaml`).
+
+### A2. Executor on agent-sandbox, OTel audit, no-op profile
+
+**Why:** I12. One run becomes one `Sandbox`, its input arrives through a per-run Secret, its result
+is the last stdout line, and every transition is an OpenTelemetry log record. Proven against a fake
+cluster API here; against a real cluster in A4.
+
+**Do,** in `service/ai_jobs`:
+- `executor.py`: replace the protocol with `ExecutionSpec`, `ExecutionRef`, `Observation` and
+  `Executor.ensure_started / observe / request_cancel` as the spec writes them. Extend
+  `ResolvedWorkerProfile` with `image`, `entrypoint` (a list), `active_deadline_seconds`,
+  `resources`, `runtime_class` (optional), `credential_source` (optional), `result_limit_bytes`.
+- `runs.py`: `RunService.admit` builds the `ExecutionSpec` from the validated request (canonical
+  JSON) and the profile, calls `ensure_started`, and records transitions. Add a method that waits
+  for a run's terminal observation up to its deadline and returns the validated result or a fixed
+  failure; validation uses the tool definition's `validate_result`. Idempotency unchanged.
+- New `sandbox.py`: a pure function from `ExecutionSpec` (+ namespace, now) to the `Sandbox`
+  manifest and the per-run Secret manifest, exactly as the spec's "The `Sandbox` every run gets":
+  `agents.x-k8s.io/v1beta1`, `spec.podTemplate`, `shutdownTime`, `shutdownPolicy: Delete`,
+  `failedPodPolicy: Retain`, no Service, the Secret owned by the `Sandbox`. Confirm every field
+  name against agent-sandbox v1.0.9 source (`api/v1beta1/sandbox_types.go`).
+- New `cluster.py`: the narrow `ClusterApi` protocol, an in-memory `FakeClusterApi` for tests
+  (it can be told to move a sandbox to running, finished-succeeded with given logs, finished-failed,
+  or never start), and a real adapter on the official `kubernetes` client (in-cluster config only).
+  The owner reference on the Secret needs the created `Sandbox`'s UID: create the `Sandbox` first.
+- `SandboxExecutor` (in `sandbox.py` or its own module) implementing `Executor` on `ClusterApi`:
+  idempotent `ensure_started` (same run id → same objects, no duplicates), `observe` from the
+  `Sandbox` `Finished` condition and reason, log read with `limitBytes = result_limit_bytes + 1`
+  (over the limit is a failure), last non-empty line parsed as JSON, `request_cancel` deletes.
+- Startup sweep: delete `ai-jobs`-labelled `Sandbox` objects older than the longest deadline plus
+  60 s.
+- New `audit.py`: one OTel log record per transition with exactly the attributes the spec lists,
+  one span per run, and the same record as one JSON line on stdout. Use `opentelemetry-sdk` and
+  `opentelemetry-exporter-otlp-proto-http` (pin compatible current versions in `pyproject.toml`);
+  configuration only through the standard `OTEL_*` environment; no exporter configured means no
+  export and no error.
+- Profile `noop-v1`: entry point `ai-jobs-worker noop` that reads `/run/ai-jobs/request.json` and
+  prints `{"envelope": "ok"}`-style valid envelope v1 for a `noop` tool (add a minimal internal
+  `noop` tool definition, not model-callable). Console script entry points in `pyproject.toml`.
+- Dependencies: `kubernetes`, the two OTel packages. Keep the worker entry point importing only the
+  stdlib and `ai_jobs.envelope` (test this by importing it in a subprocess with the other packages
+  hidden, or by inspecting `sys.modules`).
+
+**Tests** (fake cluster only): the manifest has every security setting the spec lists and
+`automountServiceAccountToken: false`; **no field of any request reaches the `Sandbox` manifest**
+(generate requests with distinctive marker values for every field of every registered tool and
+assert no marker appears anywhere in the serialised manifest; the Secret is the only place the
+request may appear); idempotent start; success, failure, timeout, oversized log, malformed last
+line, invalid envelope; cancel; sweep; audit attributes are exactly the allowlist and contain no
+request body or credential (use the SDK's in-memory log exporter); stdout line mirrors the record.
+
+**Files:** `service/ai_jobs/src/ai_jobs/**`, `service/ai_jobs/tests/**`, `service/ai_jobs/pyproject.toml`.
+Existing tests may change only where they construct the old executor protocol; say which.
+
+**Acceptance:** from `service/ai_jobs`: `uv run --extra test python -m pytest -q`.
+
+### A3. HTTP surface, `memory_recall` tool and worker
+
+**Do:** an HTTP server (`ai-jobs serve`, stdlib `http.server` or one small dependency, say which and
+why) with `GET /healthz`, `GET /readyz`, and `POST /v1/tools/memory-recall` taking the spec's request
+shape, authenticated by `Authorization: Bearer <key>` against a key→caller map read from a mounted
+file (path from env), waiting for the result per E8. OpenAPI document for Open WebUI's tool-server
+registration, generated or hand-written, served at `/openapi.json` and checked into
+`service/ai_jobs/openapi.json` (keep the existing paths). The `memory_recall` v1 tool definition
+(storage view: query digest and limit), the `memory-recall-v1` profile from the spec, and the worker
+entry point `ai-jobs-worker memory-recall` (stdlib only; hearthmem URL fixed by the profile, read
+token from `/run/ai-jobs/credential`, path `/stores/-/entries` with the token only in
+`X-Store-Token`). Add trust value `household_shared` to the envelope with its own data shape and
+size limits, in both the Python envelope and, if shared fixtures require it, a note for the Rust
+side (do not edit Rust in this package; report). Tests: auth, admission errors, a recall end to end
+against a real hearthmem `build_server` and the fake cluster (the fake runs the worker in-process
+with the Secret contents), size limits, no hearthmem error text in envelopes.
+
+### A4. Image, chart, kind end-to-end
+
+**Do:** `service/ai_jobs/Dockerfile` (non-root, read-only-root compatible), a CI image job like the
+hearthmem one, and chart templates behind `aiJobs.enabled` (default false): Deployment (single
+replica, `Recreate`, service account `<fullname>-ai-jobs` with its token mounted, since it is the
+one pod that talks to the API server), Service, ConfigMap of profiles, caller-key Secret reference
+(`aiJobs.existingSecret`), `OTEL_*` env from values, CiliumNetworkPolicy ingress from Open WebUI
+pods only, and per-profile egress CiliumNetworkPolicy rendered into `aiJobs.sandboxNamespace`
+(default `ai-jobs`) for enabled profiles. Chart tests: disabled render byte-identical to before;
+enabled objects as described; profile policy for recall allows exactly DNS and this release's
+hearthmem. A kind end-to-end test (its own CI job): kind cluster, agent-sandbox v1.0.9 core
+installed from its release, the home-ops objects of A5 applied from a test fixture, the chart
+installed with the image built in the job, hearthmem seeded, one no-op and one recall run through
+the HTTP API, the `Sandbox` and Secret gone after `shutdownTime`, an extra request field refused
+before anything is created. Say plainly that kind enforces neither CiliumNetworkPolicy nor gVisor.
+
+### A5. agent-sandbox controller and sandbox namespace (home-ops)
+
+**Do:** read home-ops `CLAUDE.md` first. Install agent-sandbox core v1.0.9 in its own namespace in
+the repository's app layout, pinned, Renovate-tracked (find what upstream publishes that Flux can
+pin: the Helm chart under `helm/` at the tag via a `GitRepository`, or the release manifest).
+Then the `ai-jobs` namespace objects from the spec's table (namespace with Pod Security labels,
+`ResourceQuota`, `LimitRange`, default-deny `CiliumNetworkPolicy`, `Role`/`RoleBinding` for
+`hearthai-ai-jobs` in `ai`, `default` service account without token), and an `ExternalSecret` in
+`ai` for the caller keys and the recall read token, naming the Bitwarden item and properties for
+the owner. Document the cutover (this must be live before A6) in the companion plan's
+"Sandbox namespace" section. Ask in the report whether VictoriaLogs retention should be raised for
+audit (E4); do not change it.
+
+### A6. Enable `aiJobs` with `noop-v1` (home-ops)
+
+**Do:** the HelmRelease values that enable `aiJobs` with only `noop-v1`, the OTLP logs endpoint for
+VictoriaLogs, and the `existingSecret`. Owner check after merge: one no-op run with `curl` through a
+port-forward returns an ok envelope, its audit records appear in VictoriaLogs, and
+`kubectl get sandboxes,secrets -n ai-jobs` is empty a few minutes later.
+
+### A7. Recall exposed in Open WebUI
+
+**Do:** hearthai: enable `memory-recall-v1` by value; Open WebUI's `TOOL_SERVER_CONNECTIONS` from a
+Secret holding exactly one entry for `ai-jobs`; P3's deny-table test changed so this one entry is
+the only permitted non-empty value. home-ops: the values that turn it on. Owner steps first: store
+created and seeded with cloud-safe entries, read token minted and in Bitwarden.
+
+### A8. gVisor runtime class (home-ops)
+
+**Do:** add the Talos `gvisor` system extension to the node image schematic the repository uses,
+and a `RuntimeClass` `gvisor` with handler `runsc`. Hand the node roll-out to the owner as the
+usual Talos upgrade; write the check (`kubectl get runtimeclass gvisor`, a test pod with
+`runtimeClassName: gvisor` running `dmesg` shows gVisor). No profile uses it until it is live.
 
 ## Specs the orchestrator writes
 

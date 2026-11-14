@@ -21,7 +21,7 @@ ephemeral pods, no service-account token, no ambient credentials, durable audit.
 | E1 | **Each run is one agent-sandbox `Sandbox`** ([kubernetes-sigs/agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox), `agents.x-k8s.io/v1beta1`, pinned at v1.0.9), built by `ai-jobs` from the profile: the pod template, `runtimeClassName` from the profile, `shutdownTime` = start + deadline + 60 s and `shutdownPolicy: Delete`, `failedPodPolicy: Retain`, no Service. The controller deletes the pod and the `Sandbox` at `shutdownTime` even if `ai-jobs` has died. *(Owner decision, 2026-11-14.)* | **`SandboxTemplate` + `SandboxWarmPool` + `SandboxClaim`**: a claim can only take an already-running pod from a warm pool (`warmPoolRef` is required), so the run's input could not be mounted at start; it would have to be pushed in through `pods/exec` or the sandbox router, which turns the worker into a server and adds the router. Keep for later if start latency matters (webfetch). **Plain Jobs** (the first draft of this spec) and **Tekton** (jokajak/hearthai#15): agent-sandbox gives the same one-pod lifecycle with expiry, plus a first-class place for a stronger runtime (E9), and is the owner's choice. Two-stage profiles are two `Sandbox` objects started in sequence by code. |
 | E2 | **Inputs reach a run through one per-run `Secret`**, owned by the `Sandbox` (ownerReference), mounted read-only at `/run/ai-jobs/`. It holds `request.json` and, when the profile has one, `credential`. Nothing else enters the pod: no environment from the request, no arguments from the request. | Environment variables (visible in the pod spec and to anything that can read it); a callback to `ai-jobs` (needs egress from the sandbox to the control plane). The Secret is garbage-collected with the `Sandbox`, so cleanup does not depend on `ai-jobs` being alive. |
 | E3 | **The result is the last line of the worker's stdout**: one envelope v1 JSON object, read through `pods/log` with a byte limit once the `Sandbox` reports `Finished` (reason `PodSucceeded`), then validated by the tool definition. | Termination message (4 KiB cap, too small for recall); a result volume (needs a PVC per run, see #15's staging PVCs); a callback (as above). Logs need no egress and no storage; the worker is untrusted either way and the envelope is validated. |
-| E4 | **Run records and audit live in SQLite** on one `ReadWriteOnce` PVC mounted by the single-replica `ai-jobs` Deployment, backed up by VolSync like `hearthmem-data`. | Postgres: the shared cluster would need a new database and role for a store that sees a few writes an hour. SQLite is what hearthmem already does. Losing in-flight run state on a pod restart is accepted (home-lab rule); losing audit is not, hence the backup. |
+| E4 | **Run state is in memory; audit is OpenTelemetry.** The run store (idempotency, state machine) is the existing `InMemoryRunStore`, scoped to the process: a restart forgets in-flight runs, which the home-lab rule accepts. Every run transition is emitted as one OTel **log record** (structured attributes, below) through the OTel SDK's OTLP/HTTP log exporter, configured only by the standard `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`/`OTEL_SERVICE_NAME` environment. In home-ops the endpoint is VictoriaLogs' native OTLP route (`/insert/opentelemetry/v1/logs`), which is already deployed on NAS-backed storage. Each run is also one **span** with the same attributes, exported only if a traces endpoint is configured (none today). *(Owner decision, 2026-11-14.)* | **SQLite + VolSync** (the previous draft): a PVC, a backup and a schema to own for a few writes an hour, and a second place to look. OTel puts audit where the rest of the cluster's logs already are. **Costs, stated:** export is best-effort (the batch processor drops records if VictoriaLogs is unreachable for longer than its queue; `ai-jobs` also writes each audit record as one JSON line to stdout, which the existing log pipeline collects, so a dropped export is not a lost record), and audit lives as long as VictoriaLogs' **global** retention (`-retentionPeriod`, 7 days by default and not set in home-ops today). If audit should outlive that, home-ops raises the retention (A5 asks). Idempotency keys are honoured only within one process lifetime. |
 | E5 | **hearthmem gains read-only tokens.** A store's write token can mint one read token; the service keeps only its digest; read tokens can `GET` a store and search it and are refused on every write route. Recall pods only ever hold a read token. | Giving the recall pod the store token: today that token can write (`POST /stores/{token}/entries`), so a compromised or confused worker could plant entries that later reach every chat. A Cilium L7 rule allowing only `GET`: depends on the cluster's Cilium L7 proxy, which this repository cannot test, and enforces the rule outside the code that owns it. |
 | E6 | **Callers are identified by a static per-consumer key** (`Authorization: Bearer`), mapped to a `caller_id` in configuration. The first consumer is Open WebUI. | Forwarding the Open WebUI user: needs `ai-jobs` to verify Open WebUI sessions. Not needed while the shared store is household-wide; revisit with I14 (writes), where approval needs a person. |
 | E7 | **One image for the control plane and the workers**, `ghcr.io/jokajak/ai-jobs`, with separate entry points (`ai-jobs serve`, `ai-jobs-worker memory-recall`). The worker entry point imports only the stdlib and `ai_jobs.envelope`. | One image per worker: more builds and pins for a 60-line worker. Code that is present is not authority; the pod has no token, no credential beyond its own read token, and egress only to hearthmem. |
@@ -73,12 +73,16 @@ control-plane pod only.
 
 **Run lifecycle.** `admit` (unchanged validation and idempotency) → store `accepted` →
 `ensure_started` → `starting` → observed `running` → `succeeded` with a validated envelope (`Sandbox` `Finished`/`PodSucceeded`), or
-`failed` / `timed_out` with a fixed failure code. Every transition is an audit row: run id, caller,
-tool and version, request digest, profile, state, time, failure code. The audit never stores the
-request body or the result body; tools already define a `storage_view`.
+`failed` / `timed_out` with a fixed failure code. Every transition is one audit log record
+(E4) with attributes `ai_jobs.run.id`, `ai_jobs.caller.id`, `ai_jobs.tool.key`, `ai_jobs.tool.version`,
+`ai_jobs.request.digest`, `ai_jobs.profile`, `ai_jobs.run.state`, `ai_jobs.failure.code`, and the
+event name `ai_jobs.run.transition`; the run's span carries the same attributes and ends at the
+terminal state. Audit never carries the request body, the result body or a credential; tools
+already define a `storage_view`, and only its digest-level fields may become attributes. A test
+asserts the exporter receives no attribute outside that list.
 
-**When `ai-jobs` restarts.** At startup it (1) marks every non-terminal run older than its
-profile's deadline as `failed` with `internal_error`, and (2) deletes `ai-jobs`-managed `Sandbox` objects older
+**When `ai-jobs` restarts.** In-flight runs are forgotten (E4); their audit shows a start with no
+end, which is the signal. At startup it deletes `ai-jobs`-managed `Sandbox` objects older
 than the longest deadline plus a grace period. That is the whole recovery story; reconciliation,
 replay and failover stay deferred as #15 proposed.
 
@@ -98,6 +102,7 @@ starts before it exists has open egress.
 | `default` service account | No bindings. `automountServiceAccountToken: false` on it as well. |
 | agent-sandbox controller | Core only (no extensions), v1.0.9, in its own namespace, from the upstream release (its Helm chart in the repository at the tag, or `sandbox.yaml`; the package picks whichever upstream publishes in a form Flux can pin), Renovate-tracked. Cluster-scoped by design; it is a controller, not a workload in `ai-jobs`. |
 | `RuntimeClass gvisor` (E9) | Handler `runsc`, plus the Talos `gvisor` extension on every node that may run sandboxes. A separate home-ops change: it rolls nodes. |
+| OTLP endpoint (E4) | The `ai-jobs` values set `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` to the in-cluster VictoriaLogs OTLP route and `OTEL_SERVICE_NAME=ai-jobs`. Owner decides whether to raise VictoriaLogs' retention for audit. |
 
 The hearthai chart renders, into `ai-jobs`, one `CiliumNetworkPolicy` per enabled profile. For
 `memory-recall-v1`: egress to `kube-dns` on 53/UDP and 53/TCP, and to the hearthmem pods of this
@@ -148,7 +153,7 @@ included; a private chat only reads.
 
 - **Unit (no cluster):** executor against the fake `ClusterApi`, including idempotent
   `ensure_started`, cancellation, deadline, oversized and malformed results, startup sweep; the
-  "no request field reaches the `Sandbox`" test; SQLite store transitions and audit rows; hearthmem
+  "no request field reaches the `Sandbox`" test; audit records captured with the OTel SDK's in-memory exporter (attribute allowlist, one record per transition); hearthmem
   read-token rules (mint, use, refused on writes, rotation).
 - **Chart:** with `aiJobs.enabled` false, the render is identical to before. Enabled: the control
   plane has no host mounts and a read-only root; the profile policy allows exactly DNS and
@@ -161,7 +166,7 @@ included; a private chat only reads.
   enforce `CiliumNetworkPolicy` and kind has no gVisor, so this proves lifecycle, admission and
   cleanup, not isolation.
   Say so in the test.
-- **Owner, once live:** a recall from an Open WebUI chat returns seeded entries; `kubectl get
+- **Owner, once live:** the run's records appear in VictoriaLogs (`service.name:ai-jobs`); a recall from an Open WebUI chat returns seeded entries; `kubectl get
   sandboxes,secrets -n ai-jobs` is empty a few minutes later; a sandbox pod cannot reach anything but
   hearthmem (owner runs one `curl` from a debug pod with the profile label).
 
@@ -191,7 +196,7 @@ Appended to the orchestration brief once this spec is approved. Each is one exec
 | ID | Package | Repo | Depends on |
 |---|---|---|---|
 | A1 | hearthmem read-only tokens: store, server, CLI, tests | hearthai | G5 |
-| A2 | Executor contract, `SandboxExecutor` on a fake `ClusterApi`, SQLite run store and audit, startup sweep, `noop-v1` profile | hearthai | G5 |
+| A2 | Executor contract, `SandboxExecutor` on a fake `ClusterApi`, OTel audit (logs and span, in-memory exporter in tests), startup sweep, `noop-v1` profile | hearthai | G5 |
 | A3 | HTTP surface (`/v1/tools/memory-recall`, caller keys), `memory_recall` tool definition, recall worker, envelope trust value | hearthai | A2, A1 |
 | A4 | `ai-jobs` image and CI build; chart templates behind `aiJobs.enabled`; chart tests; kind end-to-end job | hearthai | A3 |
 | A5 | agent-sandbox controller (core, pinned, Renovate); sandbox namespace, quota, limit range, default deny, Role, ExternalSecret | home-ops | G5; owner confirms live before A6 |
