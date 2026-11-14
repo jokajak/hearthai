@@ -7,10 +7,17 @@ name = "hearthai-ai-jobs"
 version = "0.4.0"
 description = "HearthAI isolated tool control plane"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "kubernetes>=35,<38",
+  "opentelemetry-sdk>=1.45,<1.46",
+  "opentelemetry-exporter-otlp-proto-http>=1.45,<1.46",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<9"]
+
+[project.scripts]
+ai-jobs-worker = "ai_jobs.worker:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
