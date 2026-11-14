@@ -147,7 +147,7 @@ Status values: `todo`, `running`, `review`, `ready for owner`, `merged`, `blocke
 | A5 | agent-sandbox controller and sandbox namespace | home-ops | executor | `plan/a5-sandbox-namespace` | S3 | ready for owner: [home-ops#1486](https://github.com/jokajak/home-ops/pull/1486) |
 | A6 | Enable `aiJobs` with `noop-v1` | home-ops | executor | `plan/a6-enable-ai-jobs` | A4 merged, A5 live | todo |
 | A7 | Recall exposed in Open WebUI | hearthai, home-ops | executor | `plan/a7-recall-exposed` | A6 live, P3 merged, owner steps | todo |
-| A8 | gVisor runtime class | home-ops | executor | `plan/a8-gvisor` | S3 | review: draft [home-ops#1484](https://github.com/jokajak/home-ops/pull/1484), blocked on the `user.max_user_namespaces` sysctl decision |
+| A8 | gVisor runtime class | home-ops | executor | `plan/a8-gvisor` | S3 | ready for owner: [home-ops#1484](https://github.com/jokajak/home-ops/pull/1484); sysctl on x86 nodes only (owner, 2026-11-14) |
 
 V1 to V3 can run in parallel. P1a to P1d are sequential on one branch and merge as one pull
 request; do not open it until P1c and P1d pass, because they are the only evidence for what the
