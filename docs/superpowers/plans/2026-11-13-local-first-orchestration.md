@@ -127,11 +127,11 @@ Status values: `todo`, `running`, `review`, `ready for owner`, `merged`, `blocke
 | V1 | Confirm Open WebUI setting names at the pinned tag | hearthai (read-only) | executor | none | — | done (see "Verification results") |
 | V2 | Confirm LiteLLM behaviours at the pinned tag | hearthai (read-only) | executor | none | — | done (see "Verification results") |
 | V3 | Confirm Meridian does not run built-in tools | hearthai (read-only) | executor | none | — | done (see "Verification results") |
-| P1a | Local lane entries and privacy tests | hearthai | executor | `plan/i1-local-lane` | V2 | ready for owner: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
-| P1b | Gate, its network policy, docs | hearthai | executor | continues `plan/i1-local-lane` | P1a | ready for owner: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
-| P1c | Gate behaviour test | hearthai | executor | continues `plan/i1-local-lane` | P1b | ready for owner: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
-| P1d | Runtime lane test and surface lane test | hearthai | executor | continues `plan/i1-local-lane` | P1b, V2 | ready for owner: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
-| H1 | Enable the lane and add the status probe | home-ops | executor | `plan/h1-local-lane` | G1 | todo |
+| P1a | Local lane entries and privacy tests | hearthai | executor | `plan/i1-local-lane` | V2 | merged: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
+| P1b | Gate, its network policy, docs | hearthai | executor | continues `plan/i1-local-lane` | P1a | merged: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
+| P1c | Gate behaviour test | hearthai | executor | continues `plan/i1-local-lane` | P1b | merged: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
+| P1d | Runtime lane test and surface lane test | hearthai | executor | continues `plan/i1-local-lane` | P1b, V2 | merged: [hearthai#17](https://github.com/jokajak/hearthai/pull/17) |
+| H1 | Enable the lane and add the status probe | home-ops | executor | `plan/h1-local-lane` | G1 | review: draft [home-ops#1453](https://github.com/jokajak/home-ops/pull/1453), blocked on G2 |
 | H9 | Pin the hearthai source and automate the bump | home-ops | executor | `plan/h9-pin-hearthai` | G3 | todo |
 | P3 | Open WebUI deny table and drift check | hearthai | executor | `plan/i3-deny-table` | V1, V3, G3 | todo |
 | P4 | Catalogue in the chart only | hearthai | executor | `plan/i4-catalogue` | G3, G4 | todo |
@@ -139,7 +139,7 @@ Status values: `todo`, `running`, `review`, `ready for owner`, `merged`, `blocke
 | H7 | Ingress timeouts for the gateway | home-ops | executor | `plan/h7-llm-ingress` | G3 | todo |
 | S1 | Spec: automatic router (plan M3) | hearthai | orchestrator | `plan/spec-router` | G3 | todo |
 | S2 | Spec: personas at the gateway (plan I11) | hearthai | orchestrator | `plan/spec-personas` | S1 merged | todo |
-| S3 | Spec: executor, memory tools, lane gate (plan M6) | hearthai | orchestrator | `plan/spec-ai-jobs` | G3 | todo |
+| S3 | Spec: executor, memory tools, lane gate (plan M6) | hearthai | orchestrator | `plan/spec-ai-jobs` | G3 | review: spec awaiting G5 (owner released S3 from G3 on 2026-11-14; nothing in it needs the laptop) |
 
 V1 to V3 can run in parallel. P1a to P1d are sequential on one branch and merge as one pull
 request; do not open it until P1c and P1d pass, because they are the only evidence for what the
